@@ -1,0 +1,9 @@
+.idea
+target
+nb-configuration.xml
+*.iml
+.idea
+
+# flattened poms #
+.flattened-pom.xml
+/report-data-ws/nbproject/
