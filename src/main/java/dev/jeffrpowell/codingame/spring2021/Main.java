@@ -119,7 +119,7 @@ public class Main {
         
         public boolean isGameOver() {
             //Bronze
-            return day >= 24 && lastMove.action == Move.Action.WAIT;
+            return day >= 24 && lastMove.action == Action.WAIT;
         }
         
         /**
@@ -130,68 +130,213 @@ public class Main {
          */
         private int scoreMoves(Move move, Move otherMove) {
             return Integer.compare(
-                moveScores.computeIfAbsent(move, this::scoreMove), 
-                moveScores.computeIfAbsent(otherMove, this::scoreMove)
+                moveScores.computeIfAbsent(move, m -> m.scoreMove(this)), 
+                moveScores.computeIfAbsent(otherMove, m -> m.scoreMove(this))
             );
         }
+    }
+    
+    static abstract class ScoreBuilder {
+        protected final Game game;
+        protected final Move move;
+
+        public ScoreBuilder(Game game, Move move) {
+            this.game = game;
+            this.move = move;
+        }
         
-        private int scoreMove(Move move) {
-            if (move.action == Move.Action.WAIT) {
-                return 0;
+        public int getActionScore() {
+            return move.action.ordinal();
+        }
+        
+        public int getRichnessScore() {
+            return getTargetCell().getRichness() + 1;
+        }
+        
+        public abstract Cell getTargetCell();
+        public abstract Cell getSourceCell();
+        public abstract int getTreeSizeScore();
+        public abstract int getCost();
+        /**
+         * Scan the current game state. Assume that the state doesn't change for 6 turns. How many sun points will this tree get?
+         */
+        public abstract int howManySunPointsCanThisEarn();
+        /**
+         * Scan the current game state. Assume that the state doesn't change for 6 turns. How many opponent sun points will this tree make spooky?
+         */
+        public abstract int howManyAdditionalSunPointsWillThisRobFromOpponent();
+        /**
+         * Scan the current game state. Assume that the state doesn't change for 6 turns. How many of our sun points will this tree make spooky?
+         */
+        public abstract int howManyAdditionalSunPointsWillThisRobFromMe();
+        
+        public int getFinalScore() {
+            return getActionScore() * getRichnessScore() * getTreeSizeScore() * (howManySunPointsCanThisEarn() - getCost() - howManyAdditionalSunPointsWillThisRobFromMe() + howManyAdditionalSunPointsWillThisRobFromOpponent());
+        }
+    }
+    
+    static class WaitScoreBuilder extends ScoreBuilder {
+        @Override
+        public int getRichnessScore() {
+            return 1;
+        }
+        
+        @Override
+        public Cell getTargetCell() {
+            return null;
+        }
+
+        @Override
+        public Cell getSourceCell() {
+            return null;
+        }
+
+        @Override
+        public int getTreeSizeScore() {
+            return 1;
+        }
+
+        @Override
+        public int getCost() {
+            return 0;
+        }
+
+        @Override
+        public int howManySunPointsCanThisEarn() {
+            return game.myTrees.stream().map(Tree::getSize).reduce(0, Math::addExact);
+        }
+
+        @Override
+        public int howManyAdditionalSunPointsWillThisRobFromOpponent() {
+            return 0;
+        }
+
+        @Override
+        public int howManyAdditionalSunPointsWillThisRobFromMe() {
+            return 0;
+        }
+    }
+    
+    static class SeedScoreBuilder extends ScoreBuilder{
+
+        @Override
+        public Cell getTargetCell() {
+            return game.cellMap.get(move.index2);
+        }
+
+        @Override
+        public Cell getSourceCell() {
+            return game.cellMap.get(move.index);
+        }
+
+        @Override
+        public int getTreeSizeScore() {
+            return 1;
+        }
+
+        @Override
+        public int getCost() {
+            return Long.valueOf(game.myTrees.stream().filter(t -> t.size == 0).count()).intValue();
+        }
+
+        @Override
+        public int howManySunPointsCanThisEarn() {
+            return 0;
+        }
+
+        @Override
+        public int howManyAdditionalSunPointsWillThisRobFromOpponent() {
+            throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        }
+
+        @Override
+        public int howManyAdditionalSunPointsWillThisRobFromMe() {
+            throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        }
+        
+    }
+    
+    static enum Action {
+        WAIT((i, j) -> "Soak in the sun, my Arbor Army!"),
+        SEED((i, j) -> "#" + i + ", go sneeze on #" + j),
+        GROW((i, j) -> "Let's give some water to #" + i),
+        COMPLETE((i, j) -> "I release you to Mother Earth, #" + i);
+
+        private final BiFunction<Integer, Integer, String> flavorFn;
+
+        private Action(BiFunction<Integer, Integer, String> flavorFn) {
+            this.flavorFn = flavorFn;
+        }
+
+        public String stringify(int index, int index2) {
+            if (index == -1) { //WAIT
+                return name();
             }
-            int actionScore = move.action.ordinal();
-            int cellIndex = move.action == Move.Action.SEED ? move.index2 : move.index;
-            int richnessMultiplier = cellMap.get(cellIndex).getRichness() + 1;
-            int treeSize = move.action == Move.Action.SEED ? 1 : treeMap.get(cellIndex).getSize() + 1;
-            int moveScore = actionScore * richnessMultiplier * treeSize;
-            //System.err.println(move + ": " + actionScore + " * " + richnessMultiplier + " * " + treeSize + " = " + moveScore);
-            return moveScore;
+            return name() + " " + getIndexString(index, index2);
+        }
+
+        public String stringifyWithFlavor(int index, int index2) {
+            if (index == -1) { //WAIT
+                return name() + " " + flavorFn.apply(index, index2);
+            }
+            return name() + " " + getIndexString(index, index2) + flavorFn.apply(index, index2);
+        }
+
+        private String getIndexString(int index, int index2) {
+            StringBuilder builder = new StringBuilder();
+            if (index > -1) {
+                builder.append(index).append(" ");
+            }
+            if (index2 > -1) {
+                builder.append(index2).append(" ");
+            }
+            return builder.toString();
+        }
+    }
+    
+    static BiFunction<Game, Move, Integer> getScoreFn(Action action) {
+        switch (action) {
+            case SEED:
+                return (game, move) -> {
+                    int actionScore = move.action.ordinal();
+                    int cellIndex = move.index2;
+                    int richnessMultiplier = game.cellMap.get(cellIndex).getRichness() + 1;
+                    int treeSize = 1;
+                    int moveScore = actionScore * richnessMultiplier * treeSize;
+                    return moveScore;
+                };
+            case GROW:
+                return (game, move) -> {
+                    int actionScore = move.action.ordinal();
+                    int cellIndex = move.index;
+                    int richnessMultiplier = game.cellMap.get(cellIndex).getRichness() + 1;
+                    int treeSize = game.treeMap.get(cellIndex).getSize() + 1;
+                    int moveScore = actionScore * richnessMultiplier * treeSize;
+                    return moveScore;
+                };
+            case COMPLETE:
+                return (game, move) -> {
+                    int actionScore = move.action.ordinal();
+                    int cellIndex = move.index;
+                    int richnessMultiplier = game.cellMap.get(cellIndex).getRichness() + 1;
+                    int treeSize = game.treeMap.get(cellIndex).getSize() + 1;
+                    int moveScore = actionScore * richnessMultiplier * treeSize;
+                    return moveScore;
+                };
+            case WAIT:
+            default:
+                return (game, move) -> 0;
         }
     }
     
     static class Move {
         private static final Pattern MOVE_PATTERN = Pattern.compile("(GROW|COMPLETE|WAIT|SEED) ?(\\d*)? ?(\\d*)?");
-        enum Action {
-            WAIT((i, j) -> "Soak in the sun, my Arbor Army!"),
-            SEED((i, j) -> "#" + i + ", go sneeze on #" + j),
-            GROW((i, j) -> "Let's give some water to #" + i),
-            COMPLETE((i, j) -> "I release you to Mother Earth, #" + i);
-            
-            private final BiFunction<Integer, Integer, String> flavor;
-
-            private Action(BiFunction<Integer, Integer, String> flavor) {
-                this.flavor = flavor;
-            }
-            
-            public String stringify(int index, int index2) {
-                if (index == -1) { //WAIT
-                    return name();
-                }
-                return name() + " " + getIndexString(index, index2);
-            }
-            
-            public String stringifyWithFlavor(int index, int index2) {
-                if (index == -1) { //WAIT
-                    return name() + " " + flavor.apply(index, index2);
-                }
-                return name() + " " + getIndexString(index, index2) + flavor.apply(index, index2);
-            }
-            
-            private String getIndexString(int index, int index2) {
-                StringBuilder builder = new StringBuilder();
-                if (index > -1) {
-                    builder.append(index).append(" ");
-                }
-                if (index2 > -1) {
-                    builder.append(index2).append(" ");
-                }
-                return builder.toString();
-            }
-        }
-        
         private final Action action;
         private final int index;
         private final int index2;
+        private final BiFunction<Game, Move, Integer> scoreFn;
+        private int score;
+        private boolean scoreCached;
         
         public Move(String moveString) {
             Matcher m = MOVE_PATTERN.matcher(moveString);
@@ -199,6 +344,8 @@ public class Main {
             this.action = Action.valueOf(m.group(1));
             this.index = this.action == Action.WAIT ? -1 : Integer.valueOf(m.group(2));
             this.index2 = this.action == Action.SEED ? Integer.valueOf(m.group(3)) : -1;
+            this.scoreFn = getScoreFn(action);
+            this.scoreCached = false;
         }
 
         @Override
@@ -208,6 +355,17 @@ public class Main {
             hash = 23 * hash + this.index;
             hash = 23 * hash + this.index2;
             return hash;
+        }
+        
+        public int scoreMove(Game game) {
+            if (scoreCached) {
+                return score;
+            }
+            else {
+                score = scoreFn.apply(game, this);
+                scoreCached = true;
+            }
+            return score;
         }
 
         @Override
