@@ -171,11 +171,21 @@ public class Main {
         public abstract int howManyAdditionalSunPointsWillThisRobFromMe();
         
         public int getFinalScore() {
-            return getActionScore() * getRichnessScore() * getTreeSizeScore() * (howManySunPointsCanThisEarn() - getCost() - howManyAdditionalSunPointsWillThisRobFromMe() + howManyAdditionalSunPointsWillThisRobFromOpponent());
+            return (getActionScore() * getRichnessScore() * getTreeSizeScore()) + howManySunPointsCanThisEarn() - getCost() - howManyAdditionalSunPointsWillThisRobFromMe() + howManyAdditionalSunPointsWillThisRobFromOpponent();
+        }
+        
+        @Override
+        public String toString() {
+            return "("+getActionScore()+" * "+getRichnessScore()+" * "+getTreeSizeScore()+") + "+howManySunPointsCanThisEarn()+" - "+getCost()+" - "+howManyAdditionalSunPointsWillThisRobFromMe()+" + "+howManyAdditionalSunPointsWillThisRobFromOpponent()+" = "+getFinalScore();
         }
     }
     
     static class WaitScoreBuilder extends ScoreBuilder {
+        
+        public WaitScoreBuilder(Game game, Move move) {
+            super(game, move);
+        }
+        
         @Override
         public int getRichnessScore() {
             return 1;
@@ -217,7 +227,11 @@ public class Main {
         }
     }
     
-    static class SeedScoreBuilder extends ScoreBuilder{
+    static class SeedScoreBuilder extends ScoreBuilder {
+        
+        public SeedScoreBuilder(Game game, Move move) {
+            super(game, move);
+        }
 
         @Override
         public Cell getTargetCell() {
@@ -246,14 +260,138 @@ public class Main {
 
         @Override
         public int howManyAdditionalSunPointsWillThisRobFromOpponent() {
-            throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+            return 0;
         }
 
         @Override
         public int howManyAdditionalSunPointsWillThisRobFromMe() {
-            throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+            return 0;
         }
         
+    }
+    
+    static class GrowScoreBuilder extends ScoreBuilder {
+        
+        public GrowScoreBuilder(Game game, Move move) {
+            super(game, move);
+        }
+
+        @Override
+        public Cell getTargetCell() {
+            return game.cellMap.get(move.index);
+        }
+
+        @Override
+        public Cell getSourceCell() {
+            return game.cellMap.get(move.index);
+        }
+
+        @Override
+        public int getTreeSizeScore() {
+            return game.treeMap.get(move.index).getSize() + 1;
+        }
+
+        @Override
+        public int getCost() {
+            int targetTreeSize = getTreeSizeScore();
+            int numOfTargetTrees = Long.valueOf(game.myTrees.stream().filter(t -> t.size == targetTreeSize).count()).intValue();
+            switch (targetTreeSize) {
+                case 1:
+                    return 1 + numOfTargetTrees;
+                case 2:
+                    return 3 + numOfTargetTrees;
+                case 3:
+                default:
+                    return 7 + numOfTargetTrees;
+            }
+        }
+
+        @Override
+        public int howManySunPointsCanThisEarn() {
+            //TODO consider shadows
+            return game.myTrees.stream().filter(t -> t.getCell().getIndex() == move.index).findAny().get().getSize() * 6;
+        }
+
+        @Override
+        public int howManyAdditionalSunPointsWillThisRobFromOpponent() {
+            return 0;
+        }
+
+        @Override
+        public int howManyAdditionalSunPointsWillThisRobFromMe() {
+            return 0;
+        }
+    }
+    
+    static class CompleteScoreBuilder extends ScoreBuilder {
+        
+        public CompleteScoreBuilder(Game game, Move move) {
+            super(game, move);
+        }
+
+        @Override
+        public Cell getTargetCell() {
+            return game.cellMap.get(move.index);
+        }
+
+        @Override
+        public Cell getSourceCell() {
+            return game.cellMap.get(move.index);
+        }
+
+        @Override
+        public int getTreeSizeScore() {
+            return 4;
+        }
+
+        @Override
+        public int getCost() {
+            return 4;
+        }
+
+        @Override
+        public int howManySunPointsCanThisEarn() {
+            return 0;
+        }
+
+        @Override
+        public int howManyAdditionalSunPointsWillThisRobFromOpponent() {
+            return 0;
+        }
+
+        @Override
+        public int howManyAdditionalSunPointsWillThisRobFromMe() {
+            return -1 * game.myTrees.stream().filter(t -> t.getCell().getIndex() != move.index).map(Tree::getSize).reduce(0, Math::addExact, Math::addExact);
+        }
+    }
+    
+    static class ScoreBuilderFactory {
+        public static ScoreBuilder createScoreBuilder(Action action, Game game, Move move) {
+            switch (action) {
+                case SEED:
+                    return createSeedScoreBuilder(game, move);
+                case GROW:
+                    return createGrowScoreBuilder(game, move);
+                case COMPLETE:
+                    return createCompleteScoreBuilder(game, move);
+                case WAIT:
+                default:
+                    return createWaitScoreBuilder(game, move);
+                
+            }
+        }
+        private static ScoreBuilder createWaitScoreBuilder(Game game, Move move) {
+            return new WaitScoreBuilder(game, move);
+        }
+        private static ScoreBuilder createSeedScoreBuilder(Game game, Move move) {
+            return new SeedScoreBuilder(game, move);
+        }
+        private static ScoreBuilder createGrowScoreBuilder(Game game, Move move) {
+            return new GrowScoreBuilder(game, move);
+        }
+        private static ScoreBuilder createCompleteScoreBuilder(Game game, Move move) {
+            return new CompleteScoreBuilder(game, move);
+        }
     }
     
     static enum Action {
@@ -294,47 +432,11 @@ public class Main {
         }
     }
     
-    static BiFunction<Game, Move, Integer> getScoreFn(Action action) {
-        switch (action) {
-            case SEED:
-                return (game, move) -> {
-                    int actionScore = move.action.ordinal();
-                    int cellIndex = move.index2;
-                    int richnessMultiplier = game.cellMap.get(cellIndex).getRichness() + 1;
-                    int treeSize = 1;
-                    int moveScore = actionScore * richnessMultiplier * treeSize;
-                    return moveScore;
-                };
-            case GROW:
-                return (game, move) -> {
-                    int actionScore = move.action.ordinal();
-                    int cellIndex = move.index;
-                    int richnessMultiplier = game.cellMap.get(cellIndex).getRichness() + 1;
-                    int treeSize = game.treeMap.get(cellIndex).getSize() + 1;
-                    int moveScore = actionScore * richnessMultiplier * treeSize;
-                    return moveScore;
-                };
-            case COMPLETE:
-                return (game, move) -> {
-                    int actionScore = move.action.ordinal();
-                    int cellIndex = move.index;
-                    int richnessMultiplier = game.cellMap.get(cellIndex).getRichness() + 1;
-                    int treeSize = game.treeMap.get(cellIndex).getSize() + 1;
-                    int moveScore = actionScore * richnessMultiplier * treeSize;
-                    return moveScore;
-                };
-            case WAIT:
-            default:
-                return (game, move) -> 0;
-        }
-    }
-    
     static class Move {
         private static final Pattern MOVE_PATTERN = Pattern.compile("(GROW|COMPLETE|WAIT|SEED) ?(\\d*)? ?(\\d*)?");
         private final Action action;
         private final int index;
         private final int index2;
-        private final BiFunction<Game, Move, Integer> scoreFn;
         private int score;
         private boolean scoreCached;
         
@@ -344,7 +446,6 @@ public class Main {
             this.action = Action.valueOf(m.group(1));
             this.index = this.action == Action.WAIT ? -1 : Integer.valueOf(m.group(2));
             this.index2 = this.action == Action.SEED ? Integer.valueOf(m.group(3)) : -1;
-            this.scoreFn = getScoreFn(action);
             this.scoreCached = false;
         }
 
@@ -362,7 +463,9 @@ public class Main {
                 return score;
             }
             else {
-                score = scoreFn.apply(game, this);
+                ScoreBuilder builder = ScoreBuilderFactory.createScoreBuilder(action, game, this);
+                score = builder.getFinalScore();
+                System.err.println(toString() + ": " + builder);
                 scoreCached = true;
             }
             return score;
