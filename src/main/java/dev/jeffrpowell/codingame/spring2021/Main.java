@@ -342,6 +342,16 @@ public class Main {
         }
 
         @Override
+        public int getActionScore() {
+            if (game.day > 19) {
+                return 0;
+            }
+            else {
+                return Action.SEED.ordinal();
+            }
+        }
+
+        @Override
         public Cell getTargetCell() {
             return game.cellMap.get(move.index2);
         }
@@ -415,6 +425,16 @@ public class Main {
         
         public CompleteScoreBuilder(Game game, Move move) {
             super(game, move);
+        }
+
+        @Override
+        public int getActionScore() {
+            if (game.day < 12) {
+                return 0;
+            }
+            else {
+                return Action.COMPLETE.ordinal();
+            }
         }
 
         @Override
