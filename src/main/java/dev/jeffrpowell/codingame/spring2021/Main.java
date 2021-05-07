@@ -235,10 +235,11 @@ public class Main {
             Tree modifiedTree = getModifiedTree();
             Tree originalTree = null;
             if (modifiedTree != null && getTargetCell() != null) {
-                originalTree = game.myTrees.get(getTargetCell().getIndex());
+                originalTree = game.treeMap.get(getTargetCell().getIndex());
                 game.treeMap.put(getTargetCell().index, modifiedTree);
             }
-            int points = game.myTrees.stream()
+            int points = game.treeMap.values().stream()
+                .filter(Tree::isIsMine)
                 .map(t -> game.numberOfSunPointsInARevolution(t, game.day))
                 .reduce(0, Math::addExact);
             if (modifiedTree != null && getTargetCell() != null) {
@@ -251,10 +252,11 @@ public class Main {
             Tree modifiedTree = getModifiedTree();
             Tree originalTree = null;
             if (modifiedTree != null && getTargetCell() != null) {
-                originalTree = game.myTrees.get(getTargetCell().getIndex());
+                originalTree = game.treeMap.get(getTargetCell().getIndex());
                 game.treeMap.put(getTargetCell().index, modifiedTree);
             }
-            int points =  game.theirTrees.stream()
+            int points =  game.treeMap.values().stream()
+                .filter(t -> !t.isIsMine())
                 .map(t -> game.numberOfSpookyPointsInARevolution(t, game.day))
                 .reduce(0, Math::addExact);
             if (modifiedTree != null && getTargetCell() != null) {
@@ -267,10 +269,11 @@ public class Main {
             Tree modifiedTree = getModifiedTree();
             Tree originalTree = null;
             if (modifiedTree != null && getTargetCell() != null) {
-                originalTree = game.myTrees.get(getTargetCell().getIndex());
+                originalTree = game.treeMap.get(getTargetCell().getIndex());
                 game.treeMap.put(getTargetCell().index, modifiedTree);
             }
-            int points =  game.myTrees.stream()
+            int points =  game.treeMap.values().stream()
+                .filter(Tree::isIsMine)
                 .map(t -> game.numberOfSpookyPointsInARevolution(t, game.day))
                 .reduce(0, Math::addExact);
             if (modifiedTree != null && getTargetCell() != null) {
@@ -540,7 +543,7 @@ public class Main {
             else {
                 ScoreBuilder builder = ScoreBuilderFactory.createScoreBuilder(action, game, this);
                 score = builder.getFinalScore();
-                System.err.println(toString() + ": " + builder);
+//                System.err.println(toString() + ": " + builder);
                 scoreCached = true;
             }
             return score;
