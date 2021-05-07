@@ -2,19 +2,24 @@ package dev.jeffrpowell.codingame.spring2021;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Scanner;
+import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class Main {
     public static void main(String[] args) {
         Map<Integer, Cell> cellMap = new HashMap<>();
         Map<Integer, Tree> treeMap = new HashMap<>();
         List<Tree> myTrees = new ArrayList<>();
+        List<Tree> theirTrees = new ArrayList<>();
         Scanner in = new Scanner(System.in);
         int numberOfCells = in.nextInt(); // 37
         for (int i = 0; i < numberOfCells; i++) {
@@ -26,14 +31,17 @@ public class Main {
             int neigh3 = in.nextInt();
             int neigh4 = in.nextInt();
             int neigh5 = in.nextInt();
-            cellMap.put(index, new Cell(index, richness));
+            cellMap.put(index, new Cell(index, richness, neigh0, neigh1, neigh2, neigh3, neigh4, neigh5));
         }
+        cellMap.put(-1, new Cell(-1, -1, -1, -1, -1, -1, -1, -1)); //Edge cells have -1 neighbors
+        cellMap.forEach((i, cell) -> cell.populateNeighbors(cellMap));
         Game game = new Game(cellMap);
 
         // game loop
         while (true) {
             treeMap.clear();
             myTrees.clear();
+            theirTrees.clear();
             int day = in.nextInt(); // the game lasts 24 days: 0-23
             int nutrients = in.nextInt(); // the base score you gain from the next COMPLETE action
             int sun = in.nextInt(); // your sun points
@@ -52,6 +60,9 @@ public class Main {
                 if (isMine) {
                     myTrees.add(t);
                 }
+                else {
+                    theirTrees.add(t);
+                }
             }
             int numberOfPossibleMoves = in.nextInt();
             if (in.hasNextLine()) {
@@ -66,7 +77,7 @@ public class Main {
             // Write an action using System.out.println()
             // To debug: System.err.println("Debug messages...");
             // GROW cellIdx | SEED sourceIdx targetIdx | COMPLETE cellIdx | WAIT <message>
-            System.out.println(game.executeNewTurn(day, nutrients, sun, score, oppSun, oppScore, oppIsWaiting, treeMap, myTrees, possibleMoves));
+            System.out.println(game.executeNewTurn(day, nutrients, sun, score, oppSun, oppScore, oppIsWaiting, treeMap, myTrees, theirTrees, possibleMoves));
             if (game.isGameOver()) {
                 break;
             }
@@ -82,8 +93,10 @@ public class Main {
         private int oppSun;
         private int oppScore;
         private boolean oppIsWaiting;
+        private HexDirection shadowDirection;
         private Map<Integer, Tree> treeMap;
         private List<Tree> myTrees;
+        private List<Tree> theirTrees;
         private Map<Move, Integer> moveScores;
         private Move lastMove;
 
@@ -101,6 +114,7 @@ public class Main {
             boolean oppIsWaiting,
             Map<Integer, Tree> treeMap, 
             List<Tree> myTrees, 
+            List<Tree> theirTrees, 
             List<String> possibleMoves
         ) {
             this.day = day;
@@ -110,8 +124,10 @@ public class Main {
             this.oppSun = oppSun;
             this.oppScore = oppScore;
             this.oppIsWaiting = oppIsWaiting;
+            this.shadowDirection = getShadeDirection(day);
             this.treeMap = treeMap;
             this.myTrees = myTrees;
+            this.theirTrees = theirTrees;
             this.moveScores = new HashMap<>();
             this.lastMove = possibleMoves.stream().map(Move::new).max(this::scoreMoves).get();
             return lastMove.toFlavorfulString();
@@ -120,6 +136,64 @@ public class Main {
         public boolean isGameOver() {
             //Bronze
             return day >= 24 && lastMove.action == Action.WAIT;
+        }
+        
+        public HexDirection getShadeDirection(int day) {
+            return HexDirection.values()[day % 6];
+        }
+        
+        public int numberOfSunPointsInARevolution(Tree tree, int startDay) {
+            int totalPoints = 0;
+            int treeSize = tree.getSize();
+            for (int i = 1; i <= 3; i++) {
+                final int loopVar = i;
+                Set<Cell> shadedCellsThisDay = treeMap.values().stream()
+                    .map(t -> t.whichCellsAreShaded(getShadeDirection(startDay + loopVar)))
+                    .flatMap(Set::stream)
+                    .collect(Collectors.toSet());
+                if (!shadedCellsThisDay.contains(tree.getCell())) {
+                    totalPoints += treeSize;
+                }
+            }
+            //TWEAK: possible sun points in the next 3 turns are worth more than possible sun points in the next 4-6 turns
+            for (int i = 4; i <= 6; i++) {
+                final int loopVar = i;
+                Set<Cell> shadedCellsThisDay = treeMap.values().stream()
+                    .map(t -> t.whichCellsAreShaded(getShadeDirection(startDay + loopVar)))
+                    .flatMap(Set::stream)
+                    .collect(Collectors.toSet());
+                if (!shadedCellsThisDay.contains(tree.getCell())) {
+                    totalPoints += treeSize / 2;
+                }
+            }
+            return totalPoints;
+        }
+        
+        public int numberOfSpookyPointsInARevolution(Tree tree, int startDay) {
+            int totalSpookyPoints = 0;
+            int treeSize = tree.getSize();
+            for (int i = 1; i <= 3; i++) {
+                final int loopVar = i;
+                Set<Cell> shadedCellsThisDay = treeMap.values().stream()
+                    .map(t -> t.whichCellsAreShaded(getShadeDirection(startDay + loopVar)))
+                    .flatMap(Set::stream)
+                    .collect(Collectors.toSet());
+                if (shadedCellsThisDay.contains(tree.getCell())) {
+                    totalSpookyPoints += treeSize;
+                }
+            }
+            //TWEAK: possible sun points in the next 3 turns are worth more than possible sun points in the next 4-6 turns
+            for (int i = 4; i <= 6; i++) {
+                final int loopVar = i;
+                Set<Cell> shadedCellsThisDay = treeMap.values().stream()
+                    .map(t -> t.whichCellsAreShaded(getShadeDirection(startDay + loopVar)))
+                    .flatMap(Set::stream)
+                    .collect(Collectors.toSet());
+                if (shadedCellsThisDay.contains(tree.getCell())) {
+                    totalSpookyPoints += treeSize / 2;
+                }
+            }
+            return totalSpookyPoints;
         }
         
         /**
@@ -153,22 +227,63 @@ public class Main {
             return getTargetCell().getRichness() + 1;
         }
         
+        /*
+         * Scan the current game state. Assume that the state doesn't change for 6 turns. 
+         * The next 3 methods consider the potential sun-point impact of the decision.
+         */
+        public int howManySunPointsCanThisEarn() {
+            Tree modifiedTree = getModifiedTree();
+            Tree originalTree = null;
+            if (modifiedTree != null && getTargetCell() != null) {
+                originalTree = game.myTrees.get(getTargetCell().getIndex());
+                game.treeMap.put(getTargetCell().index, modifiedTree);
+            }
+            int points = game.myTrees.stream()
+                .map(t -> game.numberOfSunPointsInARevolution(t, game.day))
+                .reduce(0, Math::addExact);
+            if (modifiedTree != null && getTargetCell() != null) {
+                game.treeMap.put(getTargetCell().index, originalTree);
+            }
+            return points;
+        }
+
+        public int howManyAdditionalSunPointsWillThisRobFromOpponent() {
+            Tree modifiedTree = getModifiedTree();
+            Tree originalTree = null;
+            if (modifiedTree != null && getTargetCell() != null) {
+                originalTree = game.myTrees.get(getTargetCell().getIndex());
+                game.treeMap.put(getTargetCell().index, modifiedTree);
+            }
+            int points =  game.theirTrees.stream()
+                .map(t -> game.numberOfSpookyPointsInARevolution(t, game.day))
+                .reduce(0, Math::addExact);
+            if (modifiedTree != null && getTargetCell() != null) {
+                game.treeMap.put(getTargetCell().index, originalTree);
+            }
+            return points;
+        }
+
+        public int howManyAdditionalSunPointsWillThisRobFromMe() {
+            Tree modifiedTree = getModifiedTree();
+            Tree originalTree = null;
+            if (modifiedTree != null && getTargetCell() != null) {
+                originalTree = game.myTrees.get(getTargetCell().getIndex());
+                game.treeMap.put(getTargetCell().index, modifiedTree);
+            }
+            int points =  game.myTrees.stream()
+                .map(t -> game.numberOfSpookyPointsInARevolution(t, game.day))
+                .reduce(0, Math::addExact);
+            if (modifiedTree != null && getTargetCell() != null) {
+                game.treeMap.put(getTargetCell().index, originalTree);
+            }
+            return points;
+        }
+        
         public abstract Cell getTargetCell();
         public abstract Cell getSourceCell();
+        public abstract Tree getModifiedTree();
         public abstract int getTreeSizeScore();
         public abstract int getCost();
-        /**
-         * Scan the current game state. Assume that the state doesn't change for 6 turns. How many sun points will this tree get?
-         */
-        public abstract int howManySunPointsCanThisEarn();
-        /**
-         * Scan the current game state. Assume that the state doesn't change for 6 turns. How many opponent sun points will this tree make spooky?
-         */
-        public abstract int howManyAdditionalSunPointsWillThisRobFromOpponent();
-        /**
-         * Scan the current game state. Assume that the state doesn't change for 6 turns. How many of our sun points will this tree make spooky?
-         */
-        public abstract int howManyAdditionalSunPointsWillThisRobFromMe();
         
         public int getFinalScore() {
             return (getActionScore() * getRichnessScore() * getTreeSizeScore()) + howManySunPointsCanThisEarn() - getCost() - howManyAdditionalSunPointsWillThisRobFromMe() + howManyAdditionalSunPointsWillThisRobFromOpponent();
@@ -200,6 +315,11 @@ public class Main {
         public Cell getSourceCell() {
             return null;
         }
+        
+        @Override
+        public Tree getModifiedTree() {
+            return null;
+        }
 
         @Override
         public int getTreeSizeScore() {
@@ -208,21 +328,6 @@ public class Main {
 
         @Override
         public int getCost() {
-            return 0;
-        }
-
-        @Override
-        public int howManySunPointsCanThisEarn() {
-            return game.myTrees.stream().map(Tree::getSize).reduce(0, Math::addExact);
-        }
-
-        @Override
-        public int howManyAdditionalSunPointsWillThisRobFromOpponent() {
-            return 0;
-        }
-
-        @Override
-        public int howManyAdditionalSunPointsWillThisRobFromMe() {
             return 0;
         }
     }
@@ -242,6 +347,11 @@ public class Main {
         public Cell getSourceCell() {
             return game.cellMap.get(move.index);
         }
+        
+        @Override
+        public Tree getModifiedTree() {
+            return null;
+        }
 
         @Override
         public int getTreeSizeScore() {
@@ -251,21 +361,6 @@ public class Main {
         @Override
         public int getCost() {
             return Long.valueOf(game.myTrees.stream().filter(t -> t.size == 0).count()).intValue();
-        }
-
-        @Override
-        public int howManySunPointsCanThisEarn() {
-            return 0;
-        }
-
-        @Override
-        public int howManyAdditionalSunPointsWillThisRobFromOpponent() {
-            return 0;
-        }
-
-        @Override
-        public int howManyAdditionalSunPointsWillThisRobFromMe() {
-            return 0;
         }
         
     }
@@ -284,6 +379,12 @@ public class Main {
         @Override
         public Cell getSourceCell() {
             return game.cellMap.get(move.index);
+        }
+        
+        @Override
+        public Tree getModifiedTree() {
+            Tree original = game.treeMap.get(move.index);
+            return new Tree(getTargetCell(), original.getSize() + 1, true, true);
         }
 
         @Override
@@ -305,22 +406,6 @@ public class Main {
                     return 7 + numOfTargetTrees;
             }
         }
-
-        @Override
-        public int howManySunPointsCanThisEarn() {
-            //TODO consider shadows
-            return game.myTrees.stream().filter(t -> t.getCell().getIndex() == move.index).findAny().get().getSize() * 6;
-        }
-
-        @Override
-        public int howManyAdditionalSunPointsWillThisRobFromOpponent() {
-            return 0;
-        }
-
-        @Override
-        public int howManyAdditionalSunPointsWillThisRobFromMe() {
-            return 0;
-        }
     }
     
     static class CompleteScoreBuilder extends ScoreBuilder {
@@ -338,6 +423,11 @@ public class Main {
         public Cell getSourceCell() {
             return game.cellMap.get(move.index);
         }
+        
+        @Override
+        public Tree getModifiedTree() {
+            return new Tree(getTargetCell(), 0, true, true);
+        }
 
         @Override
         public int getTreeSizeScore() {
@@ -347,21 +437,6 @@ public class Main {
         @Override
         public int getCost() {
             return 4;
-        }
-
-        @Override
-        public int howManySunPointsCanThisEarn() {
-            return 0;
-        }
-
-        @Override
-        public int howManyAdditionalSunPointsWillThisRobFromOpponent() {
-            return 0;
-        }
-
-        @Override
-        public int howManyAdditionalSunPointsWillThisRobFromMe() {
-            return -1 * game.myTrees.stream().filter(t -> t.getCell().getIndex() != move.index).map(Tree::getSize).reduce(0, Math::addExact, Math::addExact);
         }
     }
     
@@ -502,13 +577,21 @@ public class Main {
         }
     }
     
+    static enum HexDirection {
+        E,NE,NW,W,SW,SE;
+    }
+    
     static class Cell {
         private final int index;
         private final int richness;
+        private final List<Integer> neighborIndices;
+        private final Map<HexDirection, Cell> neighbors;
 
-        public Cell(int index, int richness) {
+        public Cell(int index, int richness, int neigh0, int neigh1, int neigh2, int neigh3, int neigh4, int neigh5) {
             this.index = index;
             this.richness = richness;
+            this.neighborIndices = Stream.of(neigh0, neigh1, neigh2, neigh3, neigh4, neigh5).collect(Collectors.toList());
+            this.neighbors = new HashMap<>();
         }
 
         public int getIndex() {
@@ -517,6 +600,13 @@ public class Main {
 
         public int getRichness() {
             return richness;
+        }
+        
+        public void populateNeighbors(Map<Integer, Cell> cellMap) {
+            HexDirection[] orderedDirections = HexDirection.values();
+            for (int i = 0; i < 6; i++) {
+                neighbors.put(orderedDirections[i], cellMap.get(neighborIndices.get(i)));
+            }
         }
     }
     
@@ -547,6 +637,16 @@ public class Main {
 
         public boolean isIsDormant() {
             return isDormant;
+        }
+        
+        public Set<Cell> whichCellsAreShaded(HexDirection shadeDirection) {
+            Cell currentCell = cell;
+            Set<Cell> shadedCells = new HashSet<>();
+            for (int i = 0; i < size; i++) {
+                currentCell = currentCell.neighbors.get(shadeDirection);
+                shadedCells.add(currentCell);
+            }
+            return shadedCells;
         }
     }
 }
