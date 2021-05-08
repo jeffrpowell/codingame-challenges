@@ -9,6 +9,7 @@ import java.util.Objects;
 import java.util.Scanner;
 import java.util.Set;
 import java.util.function.BiFunction;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -102,6 +103,7 @@ public class Main {
 
         public Game(Map<Integer, Cell> cellMap) {
             this.cellMap = cellMap;
+            this.day = -1;
         }
 
         public String executeNewTurn(
@@ -231,6 +233,7 @@ public class Main {
          * Scan the current game state. Assume that the state doesn't change for 6 turns. 
          * The next 3 methods consider the potential sun-point impact of the decision.
          */
+        
         public int howManySunPointsCanThisEarn() {
             Tree modifiedTree = getModifiedTree();
             Tree originalTree = null;
@@ -287,9 +290,13 @@ public class Main {
         public abstract Tree getModifiedTree();
         public abstract int getTreeSizeScore();
         public abstract int getCost();
+        public abstract Predicate<Integer> getDaysThatShouldBeFavored();
+        public abstract Predicate<Integer> getDaysThatShouldBeAvoided();
         
         public int getFinalScore() {
-            return (getActionScore() * getRichnessScore() * getTreeSizeScore()) + howManySunPointsCanThisEarn() - getCost() - howManyAdditionalSunPointsWillThisRobFromMe() + howManyAdditionalSunPointsWillThisRobFromOpponent();
+            int bias = getDaysThatShouldBeFavored().test(game.day) ? 5 : 1;
+            bias = getDaysThatShouldBeAvoided().test(game.day) ? 0 : bias;
+            return (getActionScore() * getRichnessScore() * getTreeSizeScore() * bias) + howManySunPointsCanThisEarn() - getCost() - howManyAdditionalSunPointsWillThisRobFromMe() + howManyAdditionalSunPointsWillThisRobFromOpponent();
         }
         
         @Override
@@ -333,22 +340,22 @@ public class Main {
         public int getCost() {
             return 0;
         }
+
+        @Override
+        public Predicate<Integer> getDaysThatShouldBeFavored() {
+            return day -> false;
+        }
+
+        @Override
+        public Predicate<Integer> getDaysThatShouldBeAvoided() {
+            return day -> false;
+        }
     }
     
     static class SeedScoreBuilder extends ScoreBuilder {
         
         public SeedScoreBuilder(Game game, Move move) {
             super(game, move);
-        }
-
-        @Override
-        public int getActionScore() {
-            if (game.day > 19) {
-                return 0;
-            }
-            else {
-                return Action.SEED.ordinal();
-            }
         }
 
         @Override
@@ -374,6 +381,16 @@ public class Main {
         @Override
         public int getCost() {
             return Long.valueOf(game.myTrees.stream().filter(t -> t.size == 0).count()).intValue();
+        }
+
+        @Override
+        public Predicate<Integer> getDaysThatShouldBeFavored() {
+            return day -> false;
+        }
+
+        @Override
+        public Predicate<Integer> getDaysThatShouldBeAvoided() {
+            return day -> day > 18 || day == 0;
         }
         
     }
@@ -419,22 +436,22 @@ public class Main {
                     return 7 + numOfTargetTrees;
             }
         }
+
+        @Override
+        public Predicate<Integer> getDaysThatShouldBeFavored() {
+            return day -> day == 0;
+        }
+
+        @Override
+        public Predicate<Integer> getDaysThatShouldBeAvoided() {
+            return day -> false;
+        }
     }
     
     static class CompleteScoreBuilder extends ScoreBuilder {
         
         public CompleteScoreBuilder(Game game, Move move) {
             super(game, move);
-        }
-
-        @Override
-        public int getActionScore() {
-            if (game.day < 12) {
-                return 0;
-            }
-            else {
-                return Action.COMPLETE.ordinal();
-            }
         }
 
         @Override
@@ -460,6 +477,16 @@ public class Main {
         @Override
         public int getCost() {
             return 4;
+        }
+
+        @Override
+        public Predicate<Integer> getDaysThatShouldBeFavored() {
+            return day -> day > 21;
+        }
+
+        @Override
+        public Predicate<Integer> getDaysThatShouldBeAvoided() {
+            return day -> day < 13;
         }
     }
     
@@ -563,7 +590,7 @@ public class Main {
             else {
                 ScoreBuilder builder = ScoreBuilderFactory.createScoreBuilder(action, game, this);
                 score = builder.getFinalScore();
-//                System.err.println(toString() + ": " + builder);
+                //System.err.println(toString() + ": " + builder);
                 scoreCached = true;
             }
             return score;
