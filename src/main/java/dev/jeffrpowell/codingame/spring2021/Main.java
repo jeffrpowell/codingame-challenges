@@ -152,6 +152,8 @@ public class Main {
                 Set<Cell> shadedCellsThisDay = treeMap.values().stream()
                     .map(t -> t.whichCellsAreShaded(getShadeDirection(startDay + loopVar)))
                     .flatMap(Set::stream)
+                    .filter(shadeSource -> shadeSource.getTreeSize() >= tree.getSize())
+                    .map(ShadeSource::getCell)
                     .collect(Collectors.toSet());
                 if (!shadedCellsThisDay.contains(tree.getCell())) {
                     totalPoints += treeSize;
@@ -163,6 +165,8 @@ public class Main {
                 Set<Cell> shadedCellsThisDay = treeMap.values().stream()
                     .map(t -> t.whichCellsAreShaded(getShadeDirection(startDay + loopVar)))
                     .flatMap(Set::stream)
+                    .filter(shadeSource -> shadeSource.getTreeSize() >= tree.getSize())
+                    .map(ShadeSource::getCell)
                     .collect(Collectors.toSet());
                 if (!shadedCellsThisDay.contains(tree.getCell())) {
                     totalPoints += treeSize / 2;
@@ -179,6 +183,8 @@ public class Main {
                 Set<Cell> shadedCellsThisDay = treeMap.values().stream()
                     .map(t -> t.whichCellsAreShaded(getShadeDirection(startDay + loopVar)))
                     .flatMap(Set::stream)
+                    .filter(shadeSource -> shadeSource.getTreeSize() >= tree.getSize())
+                    .map(ShadeSource::getCell)
                     .collect(Collectors.toSet());
                 if (shadedCellsThisDay.contains(tree.getCell())) {
                     totalSpookyPoints += treeSize;
@@ -190,6 +196,8 @@ public class Main {
                 Set<Cell> shadedCellsThisDay = treeMap.values().stream()
                     .map(t -> t.whichCellsAreShaded(getShadeDirection(startDay + loopVar)))
                     .flatMap(Set::stream)
+                    .filter(shadeSource -> shadeSource.getTreeSize() >= tree.getSize())
+                    .map(ShadeSource::getCell)
                     .collect(Collectors.toSet());
                 if (shadedCellsThisDay.contains(tree.getCell())) {
                     totalSpookyPoints += treeSize / 2;
@@ -660,6 +668,50 @@ public class Main {
         }
     }
     
+    static class ShadeSource {
+        private final Cell cell;
+        private final int treeSize;
+
+        public ShadeSource(Cell cell, int treeSize) {
+            this.cell = cell;
+            this.treeSize = treeSize;
+        }
+
+        public Cell getCell() {
+            return cell;
+        }
+
+        public int getTreeSize() {
+            return treeSize;
+        }
+
+        @Override
+        public int hashCode() {
+            int hash = 3;
+            hash = 19 * hash + Objects.hashCode(this.cell);
+            hash = 19 * hash + this.treeSize;
+            return hash;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (obj == null) {
+                return false;
+            }
+            if (getClass() != obj.getClass()) {
+                return false;
+            }
+            final ShadeSource other = (ShadeSource) obj;
+            if (this.treeSize != other.treeSize) {
+                return false;
+            }
+            return Objects.equals(this.cell, other.cell);
+        }
+    }
+    
     static class Tree {
         private final Cell cell;
         private final int size;
@@ -689,12 +741,12 @@ public class Main {
             return isDormant;
         }
         
-        public Set<Cell> whichCellsAreShaded(HexDirection shadeDirection) {
+        public Set<ShadeSource> whichCellsAreShaded(HexDirection shadeDirection) {
             Cell currentCell = cell;
-            Set<Cell> shadedCells = new HashSet<>();
+            Set<ShadeSource> shadedCells = new HashSet<>();
             for (int i = 0; i < size; i++) {
                 currentCell = currentCell.neighbors.get(shadeDirection);
-                shadedCells.add(currentCell);
+                shadedCells.add(new ShadeSource(currentCell, size));
             }
             return shadedCells;
         }
