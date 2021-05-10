@@ -361,6 +361,8 @@ public class Main {
     }
     
     static class SeedScoreBuilder extends ScoreBuilder {
+
+        private static final int VERY_HIGH_COST = Integer.MAX_VALUE - 1000;
         
         public SeedScoreBuilder(Game game, Move move) {
             super(game, move);
@@ -388,7 +390,7 @@ public class Main {
 
         @Override
         public int getCost() {
-            return Long.valueOf(game.myTrees.stream().filter(t -> t.size == 0).count()).intValue();
+            return game.myTrees.stream().anyMatch(t -> t.getSize() == 0) ? VERY_HIGH_COST : 0;
         }
 
         @Override
