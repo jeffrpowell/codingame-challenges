@@ -323,6 +323,7 @@ public class Main {
                 targetNum = Math.min(targetNum, Long.valueOf(game.myTrees.stream().filter(t -> t.getSize() == 2).count()).intValue());
             }
             if (targetNum >= possibleCompletes.size()) {
+                simulateCompletes(possibleCompletes);
                 return possibleCompletes;
             }
             SortedMap<Integer, List<Move>> spookyPoints = possibleCompletes.stream()
@@ -346,7 +347,15 @@ public class Main {
                     mostShadedTrees.addAll(nextBatchOfMoves);
                 }
             }
+            simulateCompletes(mostShadedTrees);
             return mostShadedTrees;
+        }
+
+        private void simulateCompletes(List<Move> completeMoves) {
+            for (Move move : completeMoves) {
+                Tree choppedTree = game.treeMap.remove(move.index);
+                game.myTrees.remove(choppedTree);
+            }
         }
         
         private List<Move> planGrows(List<Move> possibleGrows, int budget, int numCompletes) {
@@ -384,11 +393,12 @@ public class Main {
                 }
             }
             if (possibleGrows.size() <= maxMoves) {
+                simulateGrows(possibleGrows);
                 return possibleGrows;
             }
             SortedMap<Integer, List<Move>> spookyPoints = possibleGrows.stream()
                 .collect(Collectors.toMap(
-                    move -> game.numberOfSpookyPointsComingUp(game.treeMap.get(move.index), game.day, 2),
+                    move -> game.numberOfSpookyPointsComingUp(game.treeMap.get(move.index).growTree(), game.day, 2),
                     move -> {List<Move> singletonList = new ArrayList<>(); singletonList.add(move); return singletonList;},
                     (a, b) -> {a.addAll(b); return a;},
                     () -> new TreeMap<>(Comparator.<Integer>naturalOrder()))
@@ -407,7 +417,17 @@ public class Main {
                     leastShadedTrees.addAll(nextBatchOfMoves);
                 }
             }
+            simulateGrows(leastShadedTrees);
             return leastShadedTrees;
+        }
+        
+        private void simulateGrows(List<Move> growMoves) {
+            for (Move move : growMoves) {
+                Tree oldTree = game.treeMap.remove(move.index);
+                Tree newTree = oldTree.growTree();
+                game.treeMap.put(move.index, newTree);
+                game.myTrees.set(game.myTrees.indexOf(oldTree), newTree);
+            }
         }
         
         private Move planSeed(List<Move> possibleSeeds, boolean areWeGrowingCurrentSeed) {
@@ -685,6 +705,10 @@ public class Main {
             return isDormant;
         }
         
+        public Tree growTree() {
+            return new Tree(cell, size + 1, isMine, isDormant);
+        }
+        
         public Set<ShadeSource> whichCellsAreShaded(HexDirection shadeDirection) {
             Cell currentCell = cell;
             Set<ShadeSource> shadedCells = new HashSet<>();
@@ -694,5 +718,36 @@ public class Main {
             }
             return shadedCells;
         }
+
+        @Override
+        public int hashCode() {
+            int hash = 7;
+            hash = 59 * hash + Objects.hashCode(this.cell);
+            hash = 59 * hash + this.size;
+            hash = 59 * hash + (this.isMine ? 1 : 0);
+            return hash;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (obj == null) {
+                return false;
+            }
+            if (getClass() != obj.getClass()) {
+                return false;
+            }
+            final Tree other = (Tree) obj;
+            if (this.size != other.size) {
+                return false;
+            }
+            if (this.isMine != other.isMine) {
+                return false;
+            }
+            return Objects.equals(this.cell, other.cell);
+        }
+        
     }
 }
