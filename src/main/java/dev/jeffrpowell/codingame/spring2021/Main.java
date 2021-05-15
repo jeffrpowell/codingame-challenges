@@ -324,10 +324,14 @@ public class Main {
         }
         
         private void planGrowsForSize(List<Move> possibleGrows, int targetTreeSize) {
+            System.err.println("Planning grows to " + targetTreeSize + " with " + game.sun + " sun points");
             if (game.sun == 0 || possibleGrows.isEmpty()) {
                 return;
             }
             long baseCost = game.myTrees.stream().filter(t -> t.getSize() == targetTreeSize).count() + getBaseCost(targetTreeSize);
+            if (targetTreeSize == 3 && game.myTrees.stream().filter(t -> t.getSize() == 2).count() < game.myTrees.stream().filter(t -> t.getSize() == 3).count()) {
+                return;
+            }
             long maxMoves = game.sun / baseCost;
             if (maxMoves > 1) {
                 //since growing more than once will increase the cost by one on successive GROW commands, have to make this adjustment
@@ -424,6 +428,7 @@ public class Main {
                 case PLAN_COMPLETE:
                     moveBuffer.clear();
                     int budget = budgetManager.planCompleteBudget(day, game.nutrients, lastNutrientGrab, game.sun, game.score, game.myTrees.stream().collect(Collectors.groupingBy(Tree::getSize, Collectors.reducing(0, t -> 1, Math::addExact))));
+                    System.err.println("Complete budget: " + budget);
                     planCompletes(possibleMoves.stream().map(Move::new).filter(move -> move.getAction() == Action.COMPLETE).collect(Collectors.toList()), budget);
                     state = State.COMPLETE;
                 case COMPLETE:
