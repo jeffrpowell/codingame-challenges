@@ -188,42 +188,41 @@ public class Main {
     
     static class BudgetManager {
         
-        public int planCompleteBudget(int day, int nutrients, int lastNutrientGrab, int sunPoints, int score, Map<Integer, Integer> myTreeSizes) {
+        public int planCompleteBudget(int day, int nutrients, int lastNutrientGrab, int sunPoints, int score, int oppScore, Map<Integer, Integer> myTreeSizes) {
             if (day < 18) {
-                return planEarlyGame(day, nutrients, lastNutrientGrab, sunPoints, score, myTreeSizes);
+                return planEarlyGame(day, nutrients, lastNutrientGrab, sunPoints, score, oppScore, myTreeSizes);
             }
             else {
                 return planLateGame(day, nutrients, sunPoints, score, myTreeSizes);
             }
         }
         
-        private int planEarlyGame(int day, int nutrients, int lastNutrientGrab, int sunPoints, int score, Map<Integer, Integer> myTreeSizes) {
+        private int planEarlyGame(int day, int nutrients, int lastNutrientGrab, int sunPoints, int score, int oppScore, Map<Integer, Integer> myTreeSizes) {
             int num3Trees = myTreeSizes.getOrDefault(3, 0);
             int costToGrowTo3 = 7 + num3Trees;
+            int targetMax = day < 15 || oppScore - score > nutrients ? 3 : 4;
             if (nutrients == 19 && score == 0) {
                 return 4;
             }
-            if (sunPoints < 4 + costToGrowTo3 - 1) {
+            if (num3Trees < targetMax && sunPoints < 4 + costToGrowTo3 - 1) {
                 //I can't replace a completed tree with a new size-3 tree; just grow this day
                 return 0;
             }
-            if (num3Trees < 3 || num3Trees == 3 && lastNutrientGrab - nutrients == 1) {
+            if (num3Trees < targetMax || (num3Trees == targetMax && lastNutrientGrab - nutrients == 1 && score >= oppScore)) {
                 return 0;
             }
-            if (lastNutrientGrab - nutrients == 1 && num3Trees >= 4) {
-                return 4;
+            if (lastNutrientGrab - nutrients == 1 && num3Trees >= targetMax) {
+                return 4 * (Math.max(num3Trees - targetMax, 1));
             }
-            Double completeBudgetExact = ((double) day + 1.0) / 24.0 * (double) sunPoints;
-            return completeBudgetExact.intValue();
+//            Double completeBudgetExact = ((double) day + 1.0) / 24.0 * (double) sunPoints;
+//            return walkDownCompleteBudget(completeBudgetExact.intValue(), sunPoints);
+            return walkDownCompleteBudget(8, sunPoints);
         }
         
         private int planLateGame(int day, int nutrients, int sunPoints, int score, Map<Integer, Integer> myTreeSizes) {
             int num3Trees = myTreeSizes.getOrDefault(3, 0);
             int costToGrowTo3 = 7 + num3Trees;
-            if (nutrients <= num3Trees) {
-                return walkDownCompleteBudget((num3Trees - nutrients + 1) * 4, sunPoints);
-            }
-            if (day > 21) {
+            if (nutrients <= num3Trees || day > 21) {
                 return sunPoints;
             }
             if (sunPoints < 4 + costToGrowTo3 - 1) {
@@ -268,17 +267,17 @@ public class Main {
                 return;
             }
             int targetNum = budget / 4;
-            if (game.day <= 21 && game.nutrients > game.myTrees.stream().filter(t -> t.getSize() == 3).count()) {
+            if (game.day < 21 && game.nutrients > game.myTrees.stream().filter(t -> t.getSize() == 3).count()) {
                 targetNum = Math.min(targetNum, Long.valueOf(game.myTrees.stream().filter(t -> t.getSize() == 2).count()).intValue());
             }
             if (targetNum >= possibleCompletes.size()) {
                 simulateCompletes(possibleCompletes);
-                moveBuffer.addAll(possibleCompletes);
+                moveBuffer.addAll(possibleCompletes.stream().sorted(Comparator.comparing(move -> game.cellMap.get(move.index).getRichness())).collect(Collectors.toList()));
                 return;
             }
             SortedMap<Integer, List<Move>> spookyPoints = possibleCompletes.stream()
                 .collect(Collectors.toMap(
-                    move -> game.numberOfSpookyPointsComingUp(game.treeMap.get(move.index), game.day, 2),
+                    move -> game.numberOfSpookyPointsComingUp(game.treeMap.get(move.index), game.day, 3),
                     move -> {List<Move> singletonList = new ArrayList<>(); singletonList.add(move); return singletonList;},
                     (a, b) -> {a.addAll(b); return a;},
                     () -> new TreeMap<>(Comparator.<Integer>reverseOrder()))
@@ -298,7 +297,7 @@ public class Main {
                 }
             }
             simulateCompletes(mostShadedTrees);
-            moveBuffer.addAll(mostShadedTrees);
+            moveBuffer.addAll(mostShadedTrees.stream().sorted(Comparator.comparing(move -> game.cellMap.get(move.index).getRichness())).collect(Collectors.toList()));
         }
 
         private void simulateCompletes(List<Move> completeMoves) {
@@ -319,13 +318,24 @@ public class Main {
             }
         }
         
+        private long getLastDayForGrow(int treeSize) {
+            switch (treeSize) {
+                case 3:
+                    return 22;
+                case 2:
+                    return 19;
+                default:
+                    return 18;
+            }
+        }
+        
         private long getActualCost(long baseCost, long numUpgrades) {
             return baseCost * numUpgrades + numUpgrades - 1;
         }
         
         private void planGrowsForSize(List<Move> possibleGrows, int targetTreeSize) {
             System.err.println("Planning grows to " + targetTreeSize + " with " + game.sun + " sun points");
-            if (game.sun == 0 || possibleGrows.isEmpty()) {
+            if (game.sun == 0 || possibleGrows.isEmpty() || game.day > getLastDayForGrow(targetTreeSize)) {
                 return;
             }
             long baseCost = game.myTrees.stream().filter(t -> t.getSize() == targetTreeSize).count() + getBaseCost(targetTreeSize);
@@ -346,7 +356,7 @@ public class Main {
             }
             SortedMap<Integer, List<Move>> spookyPoints = possibleGrows.stream()
                 .collect(Collectors.toMap(
-                    move -> game.numberOfSpookyPointsComingUp(game.treeMap.get(move.index).growTree(), game.day, 2),
+                    move -> game.numberOfSpookyPointsComingUp(game.treeMap.get(move.index).growTree(), game.day, 3),
                     move -> {List<Move> singletonList = new ArrayList<>(); singletonList.add(move); return singletonList;},
                     (a, b) -> {a.addAll(b); return a;},
                     () -> new TreeMap<>(Comparator.<Integer>naturalOrder()))
@@ -386,7 +396,7 @@ public class Main {
         }
         
         private boolean shouldWeSkipSeed() {
-            return game.day <= 1 || game.myTrees.stream().anyMatch(t -> t.getSize() == 0);
+            return game.day <= 1 || game.day > 18 || game.myTrees.stream().anyMatch(t -> t.getSize() == 0);
         }
     
         private int scoreSeedPlacement(Move move) {
@@ -413,7 +423,7 @@ public class Main {
             if (game.treeMap.get(move.index).getSize() == 3) {
                 bonus++;
             }
-            if (game.cellMap.get(move.index2).getRichness() == 3) {
+            if (game.day > 12 && game.cellMap.get(move.index2).getRichness() == 3) {
                 bonus++;
             }
             return bonus;
@@ -427,7 +437,7 @@ public class Main {
                 */
                 case PLAN_COMPLETE:
                     moveBuffer.clear();
-                    int budget = budgetManager.planCompleteBudget(day, game.nutrients, lastNutrientGrab, game.sun, game.score, game.myTrees.stream().collect(Collectors.groupingBy(Tree::getSize, Collectors.reducing(0, t -> 1, Math::addExact))));
+                    int budget = budgetManager.planCompleteBudget(day, game.nutrients, lastNutrientGrab, game.sun, game.score, game.oppScore, game.myTrees.stream().collect(Collectors.groupingBy(Tree::getSize, Collectors.reducing(0, t -> 1, Math::addExact))));
                     System.err.println("Complete budget: " + budget);
                     planCompletes(possibleMoves.stream().map(Move::new).filter(move -> move.getAction() == Action.COMPLETE).collect(Collectors.toList()), budget);
                     state = State.COMPLETE;
