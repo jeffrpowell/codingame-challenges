@@ -226,12 +226,6 @@ public class Main {
                 budgets.put(Action.GROW, sunPoints);
                 return;
             }
-//            if (lastNutrientGrab - nutrients > 2) {
-//                int completeBudget = walkDownCompleteBudget((lastNutrientGrab - nutrients) * 4, sunPoints);
-//                budgets.put(Action.COMPLETE, completeBudget);
-//                budgets.put(Action.GROW, sunPoints - completeBudget);
-//                return;
-//            }
             if (num3Trees < 3 || num3Trees == 3 && lastNutrientGrab - nutrients == 1) {
                 budgets.put(Action.COMPLETE, 0);
                 budgets.put(Action.GROW, sunPoints);
@@ -284,16 +278,19 @@ public class Main {
     }
     
     static class MoveManager {
+        enum State {ONE_PLAN, TWO_MOVE, THREE_SEED, FOUR_WAIT;}
         private final Map<Integer, List<Move>> plannedMoves;
         private final Game game;
         private final BudgetManager budgetManager;
         private int lastNutrientGrab;
+        private State state;
         
         public MoveManager(Game game) {
             plannedMoves = new HashMap<>();
             this.game = game;
             this.budgetManager = new BudgetManager();
             this.lastNutrientGrab = 21;
+            this.state = State.ONE_PLAN;
         }
         
         //Plan all moves for a day at once
@@ -306,11 +303,7 @@ public class Main {
             int budgetNotSpent = budgetManager.getBudget(Action.COMPLETE) - (moves.size() * 4);
             List<Move> growMoves = planGrows(possibleMoves.getOrDefault(Action.GROW, Collections.emptyList()), budgetManager.getBudget(Action.GROW) + budgetNotSpent, moves.size());
             moves.addAll(growMoves);
-            Move seedMove = planSeed(possibleMoves.getOrDefault(Action.SEED, Collections.emptyList()), shouldWePlantSeed(growMoves));
-            if (seedMove != null) {
-                moves.add(seedMove);
-            }
-            //wait move comes automatically when the list is empty
+            //seeds will come in a later turn so we can get the server to calculate new seed moves after completes; we can also get an edge on placement knowing the first few actions of the opponent
             plannedMoves.put(day, moves);
         }
         
@@ -363,21 +356,21 @@ public class Main {
                 return new ArrayList<>();
             }
             Map<Integer, List<Move>> possibleGrowsBySize = possibleGrows.stream().collect(Collectors.groupingBy(move -> game.treeMap.get(move.index).getSize()));
-            long base3Cost = getBaseCost(game.myTrees.stream().filter(t -> t.getSize() == 3).count(), numCompletes, 7);
+            long base3Cost = getBaseCost(game.myTrees.stream().filter(t -> t.getSize() == 3).count(), 7);
             List<Move> moves3 = planGrowsForSize(possibleGrowsBySize.getOrDefault(2, Collections.emptyList()), budget, base3Cost);
             long actual3Cost = getActualCost(base3Cost, moves3.size());
             budget -= actual3Cost;
-            long base2Cost = getBaseCost(game.myTrees.stream().filter(t -> t.getSize() == 2).count(), moves3.size(), 3);
+            long base2Cost = getBaseCost(game.myTrees.stream().filter(t -> t.getSize() == 2).count(), 3);
             List<Move> moves2 = planGrowsForSize(possibleGrowsBySize.getOrDefault(1, Collections.emptyList()), budget, base2Cost);
             long actual2Cost = getActualCost(base3Cost, moves2.size());
             budget -= actual2Cost;
-            long base1Cost = getBaseCost(game.myTrees.stream().filter(t -> t.getSize() == 1).count(), moves2.size(), 1);
+            long base1Cost = getBaseCost(game.myTrees.stream().filter(t -> t.getSize() == 1).count(), 1);
             List<Move> moves1 = planGrowsForSize(possibleGrowsBySize.getOrDefault(0, Collections.emptyList()), budget, base1Cost);
             return Stream.of(moves3, moves2, moves1).flatMap(List::stream).collect(Collectors.toList());
         }
         
-        private long getBaseCost(long numTrees, int numUpgradesAhead, int unitCost) {
-            return unitCost + numTrees - numUpgradesAhead;
+        private long getBaseCost(long numTrees, int unitCost) {
+            return unitCost + numTrees;
         }
         
         private long getActualCost(long baseCost, long numUpgrades) {
@@ -430,22 +423,16 @@ public class Main {
             }
         }
         
-        private Move planSeed(List<Move> possibleSeeds, boolean areWeGrowingCurrentSeed) {
-            if (!areWeGrowingCurrentSeed || possibleSeeds.isEmpty()) {
+        private Move planSeed(List<Move> possibleSeeds) {
+            if (shouldWeSkipSeed() || possibleSeeds.isEmpty()) {
                 return null;
             }
+            //wait move comes automatically when the list is empty
             return possibleSeeds.stream().sorted(Comparator.comparing(this::scoreSeedPlacement).reversed()).findFirst().get();
         }
         
-        private boolean shouldWePlantSeed(List<Move> upcomingGrowMoves) {
-            if (game.day <= 1) {
-                return false;
-            }
-            return upcomingGrowMoves.stream()
-                .map(move -> game.treeMap.get(move.index).getSize())
-                .anyMatch(treeSize -> treeSize == 0) 
-                || game.myTrees.stream().noneMatch(t -> t.getSize() == 0);
-                
+        private boolean shouldWeSkipSeed() {
+            return game.day <= 1 || game.myTrees.stream().anyMatch(t -> t.getSize() == 0);
         }
     
         private int scoreSeedPlacement(Move move) {
@@ -479,19 +466,40 @@ public class Main {
         }
         
         public Move nextMove(int day, List<String> possibleMoves) {
-            if (!plannedMoves.containsKey(day)) {
-                budgetManager.planBudget(day, game.nutrients, lastNutrientGrab, game.sun, game.score, game.myTrees.stream().collect(Collectors.groupingBy(Tree::getSize, Collectors.reducing(0, t -> 1, Math::addExact))));
-                planMoves(day, possibleMoves.stream().map(Move::new).collect(Collectors.groupingBy(Move::getAction)));
+            switch (state) {
+                case ONE_PLAN:
+                    budgetManager.planBudget(day, game.nutrients, lastNutrientGrab, game.sun, game.score, game.myTrees.stream().collect(Collectors.groupingBy(Tree::getSize, Collectors.reducing(0, t -> 1, Math::addExact))));
+                    planMoves(day, possibleMoves.stream().map(Move::new).collect(Collectors.groupingBy(Move::getAction)));
+                    state = State.TWO_MOVE;
+                    //spill to state 2
+                case TWO_MOVE:
+                    List<Move> moves = plannedMoves.get(day);
+                    if (!moves.isEmpty()) {
+                        Move nextMove = moves.remove(0);
+                        if (nextMove.action == Action.COMPLETE) {
+                            lastNutrientGrab = game.nutrients;
+                        }
+                        if (moves.isEmpty()) {
+                            state = State.THREE_SEED;
+                        }
+                        return nextMove;
+                    }
+                    else {
+                        state = State.THREE_SEED;
+                        //spill to next state
+                    }
+                case THREE_SEED:
+                    Move seedMove = planSeed(possibleMoves.stream().map(Move::new).filter(move -> move.getAction() == Action.SEED).collect(Collectors.toList()));
+                    if (seedMove != null) {
+                        state = State.FOUR_WAIT;
+                        return seedMove;
+                    }
+                    //else, spill to state 4
+                case FOUR_WAIT:
+                default:
+                    state = State.ONE_PLAN;
+                    return new Move("WAIT");
             }
-            List<Move> moves = plannedMoves.get(day);
-            if (moves.isEmpty()) {
-                return new Move("WAIT");
-            }
-            Move nextMove = moves.remove(0);
-            if (nextMove.action == Action.COMPLETE) {
-                lastNutrientGrab = game.nutrients;
-            }
-            return nextMove;
         }
     }
     
@@ -629,7 +637,6 @@ public class Main {
         public Map<HexDirection, Cell> getNeighbors() {
             return neighbors;
         }
-
     }
     
     static class ShadeSource {
@@ -748,6 +755,5 @@ public class Main {
             }
             return Objects.equals(this.cell, other.cell);
         }
-        
     }
 }
