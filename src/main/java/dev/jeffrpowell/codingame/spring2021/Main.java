@@ -167,10 +167,10 @@ public class Main {
             return totalPoints;
         }
         
-        public int numberOfSpookyPointsComingUp(Tree tree, int startDay, int numberOfDays) {
+        public int numberOfSpookyPointsComingUpForTree(Tree tree, int startDay, int numberOfDays) {
             int totalSpookyPoints = 0;
             int treeSize = tree.getSize();
-            for (int i = 1; i <= 3; i++) {
+            for (int i = 1; i <= numberOfDays; i++) {
                 final int loopVar = i;
                 Set<Cell> shadedCellsThisDay = treeMap.values().stream()
                     .map(t -> t.whichCellsAreShaded(getShadeDirection(startDay + loopVar)))
@@ -183,6 +183,36 @@ public class Main {
                 }
             }
             return totalSpookyPoints / 3;
+        }
+        
+        public int numberOfOpponentSpookyPointsCausedByTree(Tree tree, int startDay, int numberOfDays) {
+            int totalSpookyPoints = 0;
+            for (int i = 1; i <= numberOfDays; i++) {
+                Set<ShadeSource> shadedCells = tree.whichCellsAreShaded(getShadeDirection(startDay + i));
+                totalSpookyPoints += shadedCells.stream()
+                    .filter(shadeSource -> treeMap.containsKey(shadeSource.getCell().getIndex()))
+                    .map(shadeSource -> treeMap.get(shadeSource.getCell().getIndex()))
+                    .filter(t -> !t.isIsMine())
+                    .map(Tree::getSize)
+                    .filter(size -> size <= tree.getSize())
+                    .reduce(0, Math::addExact);
+            }
+            return totalSpookyPoints;
+        }
+        
+        public int numberOfSelfSpookyPointsCausedByTree(Tree tree, int startDay, int numberOfDays) {
+            int totalSpookyPoints = 0;
+            for (int i = 1; i <= numberOfDays; i++) {
+                Set<ShadeSource> shadedCells = tree.whichCellsAreShaded(getShadeDirection(startDay + i));
+                totalSpookyPoints += shadedCells.stream()
+                    .filter(shadeSource -> treeMap.containsKey(shadeSource.getCell().getIndex()))
+                    .map(shadeSource -> treeMap.get(shadeSource.getCell().getIndex()))
+                    .filter(Tree::isIsMine)
+                    .map(Tree::getSize)
+                    .filter(size -> size <= tree.getSize())
+                    .reduce(0, Math::addExact);
+            }
+            return totalSpookyPoints;
         }
     }
     
@@ -277,27 +307,27 @@ public class Main {
             }
             SortedMap<Integer, List<Move>> spookyPoints = possibleCompletes.stream()
                 .collect(Collectors.toMap(
-                    move -> game.numberOfSpookyPointsComingUp(game.treeMap.get(move.index), game.day, 3),
+                    move -> game.numberOfSelfSpookyPointsCausedByTree(game.treeMap.get(move.index).growTree(), game.day, 3) + game.numberOfSpookyPointsComingUpForTree(game.treeMap.get(move.index), game.day, 3) - game.numberOfOpponentSpookyPointsCausedByTree(game.treeMap.get(move.index), game.day, 3),
                     move -> {List<Move> singletonList = new ArrayList<>(); singletonList.add(move); return singletonList;},
                     (a, b) -> {a.addAll(b); return a;},
                     () -> new TreeMap<>(Comparator.<Integer>reverseOrder()))
                 );
-            List<Move> mostShadedTrees = new ArrayList<>();
-            while(mostShadedTrees.size() < targetNum) {
+            List<Move> bestShadowUtilization = new ArrayList<>();
+            while(bestShadowUtilization.size() < targetNum) {
                 List<Move> nextBatchOfMoves = spookyPoints.remove(spookyPoints.firstKey());
-                if (mostShadedTrees.size() + nextBatchOfMoves.size() > targetNum) {
+                if (bestShadowUtilization.size() + nextBatchOfMoves.size() > targetNum) {
                     //secondary sort: prefer completing more rich soil
-                    mostShadedTrees.addAll(nextBatchOfMoves.stream()
+                    bestShadowUtilization.addAll(nextBatchOfMoves.stream()
                         .sorted(Comparator.comparing((Move move) -> game.cellMap.get(move.index).getRichness()).reversed())
-                        .limit(targetNum - mostShadedTrees.size())
+                        .limit(targetNum - bestShadowUtilization.size())
                         .collect(Collectors.toList()));
                 }
                 else {
-                    mostShadedTrees.addAll(nextBatchOfMoves);
+                    bestShadowUtilization.addAll(nextBatchOfMoves);
                 }
             }
-            simulateCompletes(mostShadedTrees);
-            moveBuffer.addAll(mostShadedTrees.stream().sorted(Comparator.comparing(move -> game.cellMap.get(move.index).getRichness())).collect(Collectors.toList()));
+            simulateCompletes(bestShadowUtilization);
+            moveBuffer.addAll(bestShadowUtilization.stream().sorted(Comparator.comparing(move -> game.cellMap.get(move.index).getRichness())).collect(Collectors.toList()));
         }
 
         private void simulateCompletes(List<Move> completeMoves) {
@@ -334,7 +364,6 @@ public class Main {
         }
         
         private void planGrowsForSize(List<Move> possibleGrows, int targetTreeSize) {
-            System.err.println("Planning grows to " + targetTreeSize + " with " + game.sun + " sun points");
             if (game.sun == 0 || possibleGrows.isEmpty() || game.day > getLastDayForGrow(targetTreeSize)) {
                 return;
             }
@@ -356,27 +385,27 @@ public class Main {
             }
             SortedMap<Integer, List<Move>> spookyPoints = possibleGrows.stream()
                 .collect(Collectors.toMap(
-                    move -> game.numberOfSpookyPointsComingUp(game.treeMap.get(move.index).growTree(), game.day, 3),
+                    move -> game.numberOfOpponentSpookyPointsCausedByTree(game.treeMap.get(move.index).growTree(), game.day, 3) - game.numberOfSpookyPointsComingUpForTree(game.treeMap.get(move.index).growTree(), game.day, 3) - game.numberOfSelfSpookyPointsCausedByTree(game.treeMap.get(move.index).growTree(), game.day, 3),
                     move -> {List<Move> singletonList = new ArrayList<>(); singletonList.add(move); return singletonList;},
                     (a, b) -> {a.addAll(b); return a;},
                     () -> new TreeMap<>(Comparator.<Integer>naturalOrder()))
                 );
-            List<Move> leastShadedTrees = new ArrayList<>();
-            while(leastShadedTrees.size() < maxMoves) {
+            List<Move> bestShadowUtilization = new ArrayList<>();
+            while(bestShadowUtilization.size() < maxMoves) {
                 List<Move> nextBatchOfMoves = spookyPoints.remove(spookyPoints.firstKey());
-                if (leastShadedTrees.size() + nextBatchOfMoves.size() > maxMoves) {
+                if (bestShadowUtilization.size() + nextBatchOfMoves.size() > maxMoves) {
                     //secondary sort: prefer growing in more rich soil
-                    leastShadedTrees.addAll(nextBatchOfMoves.stream()
+                    bestShadowUtilization.addAll(nextBatchOfMoves.stream()
                         .sorted(Comparator.comparing((Move move) -> game.cellMap.get(move.index).getRichness()).reversed())
-                        .limit(maxMoves - leastShadedTrees.size())
+                        .limit(maxMoves - bestShadowUtilization.size())
                         .collect(Collectors.toList()));
                 }
                 else {
-                    leastShadedTrees.addAll(nextBatchOfMoves);
+                    bestShadowUtilization.addAll(nextBatchOfMoves);
                 }
             }
-            simulateGrows(leastShadedTrees);
-            moveBuffer.addAll(leastShadedTrees);
+            simulateGrows(bestShadowUtilization);
+            moveBuffer.addAll(bestShadowUtilization);
         }
         
         private void simulateGrows(List<Move> growMoves) {
@@ -392,14 +421,33 @@ public class Main {
             if (shouldWeSkipSeed() || possibleSeeds.isEmpty()) {
                 return;
             }
-            moveBuffer.add(possibleSeeds.stream().sorted(Comparator.comparing(this::scoreSeedPlacement).reversed()).findFirst().get());
+            SortedMap<Integer, List<Move>> shadowScores = possibleSeeds.stream()
+                .collect(Collectors.toMap(
+                    this::scoreSeedPlacementForShadow,
+                    move -> {List<Move> singletonList = new ArrayList<>(); singletonList.add(move); return singletonList;},
+                    (a, b) -> {a.addAll(b); return a;},
+                    () -> new TreeMap<>(Comparator.<Integer>reverseOrder()))
+                );
+            List<Move> bestShadowMoves = shadowScores.get(shadowScores.firstKey());
+//            System.err.println("Best shadow score: " + shadowScores.firstKey());
+            moveBuffer.add(bestShadowMoves.stream().sorted(Comparator.comparing(this::scoreSeedPlacementForArea).reversed()).findFirst().get());
         }
         
         private boolean shouldWeSkipSeed() {
             return game.day <= 1 || game.day > 18 || game.myTrees.stream().anyMatch(t -> t.getSize() == 0);
         }
     
-        private int scoreSeedPlacement(Move move) {
+        private int scoreSeedPlacementForShadow(Move move) {
+            Tree futureGrowth = new Tree(game.cellMap.get(move.index2), 1, true, false);
+            int size1ShadowScore = game.numberOfOpponentSpookyPointsCausedByTree(futureGrowth, game.day + 1, 3) - game.numberOfSelfSpookyPointsCausedByTree(futureGrowth, game.day + 1, 3) - game.numberOfSpookyPointsComingUpForTree(futureGrowth, game.day + 1, 3);
+            futureGrowth = futureGrowth.growTree();
+            int size2ShadowScore = game.numberOfOpponentSpookyPointsCausedByTree(futureGrowth, game.day + 2, 3) - game.numberOfSelfSpookyPointsCausedByTree(futureGrowth, game.day + 2, 3) - game.numberOfSpookyPointsComingUpForTree(futureGrowth, game.day + 2, 3);
+            futureGrowth = futureGrowth.growTree();
+            int size3ShadowScore = game.numberOfOpponentSpookyPointsCausedByTree(futureGrowth, game.day + 3, 3) - game.numberOfSelfSpookyPointsCausedByTree(futureGrowth, game.day + 3, 3) - game.numberOfSpookyPointsComingUpForTree(futureGrowth, game.day + 3, 3);
+            return size1ShadowScore + size2ShadowScore + size3ShadowScore;
+        }
+        
+        private int scoreSeedPlacementForArea(Move move) {
             boolean stillSearching = true;
             int distanceToNearestTree = 0;
             Set<Cell> cells = new HashSet<>();
@@ -426,6 +474,7 @@ public class Main {
             if (game.day > 12 && game.cellMap.get(move.index2).getRichness() == 3) {
                 bonus++;
             }
+//            System.err.println(move + ": " + bonus);
             return bonus;
         }
         
@@ -438,7 +487,6 @@ public class Main {
                 case PLAN_COMPLETE:
                     moveBuffer.clear();
                     int budget = budgetManager.planCompleteBudget(day, game.nutrients, lastNutrientGrab, game.sun, game.score, game.oppScore, game.myTrees.stream().collect(Collectors.groupingBy(Tree::getSize, Collectors.reducing(0, t -> 1, Math::addExact))));
-                    System.err.println("Complete budget: " + budget);
                     planCompletes(possibleMoves.stream().map(Move::new).filter(move -> move.getAction() == Action.COMPLETE).collect(Collectors.toList()), budget);
                     state = State.COMPLETE;
                 case COMPLETE:
