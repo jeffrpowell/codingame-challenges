@@ -149,6 +149,15 @@ public class Main {
             return HexDirection.values()[day % 6];
         }
         
+        public int numberOfTrees(int size, boolean isMine) {
+            if (isMine) {
+                return Long.valueOf(myTrees.stream().filter(tree -> tree.getSize() == size).count()).intValue();
+            }
+            else {
+                return Long.valueOf(theirTrees.stream().filter(tree -> tree.getSize() == size).count()).intValue();
+            }
+        }
+        
         public int numberOfSunPointsComingUp(Tree tree, int startDay, int numberOfDays) {
             int totalPoints = 0;
             int treeSize = tree.getSize();
@@ -182,7 +191,7 @@ public class Main {
                     totalSpookyPoints += treeSize;
                 }
             }
-            return totalSpookyPoints / 3;
+            return totalSpookyPoints;
         }
         
         public int numberOfOpponentSpookyPointsCausedByTree(Tree tree, int startDay, int numberOfDays) {
@@ -218,19 +227,23 @@ public class Main {
     
     static class BudgetManager {
         
-        public int planCompleteBudget(int day, int nutrients, int lastNutrientGrab, int sunPoints, int score, int oppScore, Map<Integer, Integer> myTreeSizes) {
+        public int planCompleteBudget(int day, int nutrients, int lastNutrientGrab, int sunPoints, int score, int oppScore, long theirTreeCt, int num3Trees, Map<Integer, Integer> myTreeRichnesses) {
             if (day < 18) {
-                return planEarlyGame(day, nutrients, lastNutrientGrab, sunPoints, score, oppScore, myTreeSizes);
+                return planEarlyGame(day, nutrients, lastNutrientGrab, sunPoints, score, oppScore, theirTreeCt, num3Trees, myTreeRichnesses);
             }
             else {
-                return planLateGame(day, nutrients, sunPoints, score, myTreeSizes);
+                return planLateGame(day, nutrients, sunPoints, score, num3Trees, myTreeRichnesses);
             }
         }
         
-        private int planEarlyGame(int day, int nutrients, int lastNutrientGrab, int sunPoints, int score, int oppScore, Map<Integer, Integer> myTreeSizes) {
-            int num3Trees = myTreeSizes.getOrDefault(3, 0);
+        private int planEarlyGame(int day, int nutrients, int lastNutrientGrab, int sunPoints, int score, int oppScore, long theirTreeCt, int num3Trees, Map<Integer, Integer> myTreeRichnesses) {
             int costToGrowTo3 = 7 + num3Trees;
-            int targetMax = day < 15 || oppScore - score > nutrients ? 3 : 4;
+            int lessThan10 = getLessThan10(nutrients, myTreeRichnesses);
+            long targetMax = theirTreeCt;
+//            System.err.println(Arrays.toString(new Object[]{costToGrowTo3, targetMax, nutrients, lastNutrientGrab, sunPoints}));  
+            if (lessThan10 > 1) {
+                return walkDownCompleteBudget(lessThan10 * 4, sunPoints);
+            }
             if (nutrients == 19 && score == 0) {
                 return 4;
             }
@@ -242,16 +255,33 @@ public class Main {
                 return 0;
             }
             if (lastNutrientGrab - nutrients == 1 && num3Trees >= targetMax) {
-                return 4 * (Math.max(num3Trees - targetMax, 1));
+                return Long.valueOf(4 * (Math.max(num3Trees - targetMax, 1))).intValue();
             }
 //            Double completeBudgetExact = ((double) day + 1.0) / 24.0 * (double) sunPoints;
 //            return walkDownCompleteBudget(completeBudgetExact.intValue(), sunPoints);
             return walkDownCompleteBudget(8, sunPoints);
         }
         
-        private int planLateGame(int day, int nutrients, int sunPoints, int score, Map<Integer, Integer> myTreeSizes) {
-            int num3Trees = myTreeSizes.getOrDefault(3, 0);
+        private int getLessThan10(int nutrients, Map<Integer, Integer> myTreeRichnesses) {
+            int total = 0;
+            if (nutrients < 10) {
+                total += myTreeRichnesses.getOrDefault(1, 0);
+            }
+            if (nutrients < 8) {
+                total += myTreeRichnesses.getOrDefault(2, 0);
+            }
+            if (nutrients < 6) {
+                total += myTreeRichnesses.getOrDefault(3, 0);
+            }
+            return total;
+        }
+        
+        private int planLateGame(int day, int nutrients, int sunPoints, int score, int num3Trees, Map<Integer, Integer> myTreeRichnesses) {
             int costToGrowTo3 = 7 + num3Trees;
+            int lessThan10 = getLessThan10(nutrients, myTreeRichnesses);
+            if (lessThan10 > 1) {
+                return walkDownCompleteBudget(lessThan10 * 4, sunPoints);
+            }
             if (nutrients <= num3Trees || day > 21) {
                 return sunPoints;
             }
@@ -297,8 +327,8 @@ public class Main {
                 return;
             }
             int targetNum = budget / 4;
-            if (game.day < 21 && game.nutrients > game.myTrees.stream().filter(t -> t.getSize() == 3).count()) {
-                targetNum = Math.min(targetNum, Long.valueOf(game.myTrees.stream().filter(t -> t.getSize() == 2).count()).intValue());
+            if (game.day < 21 && game.nutrients > game.numberOfTrees(3, true)) {
+                targetNum = Math.min(targetNum, game.numberOfTrees(2, true));
             }
             if (targetNum >= possibleCompletes.size()) {
                 simulateCompletes(possibleCompletes);
@@ -307,7 +337,7 @@ public class Main {
             }
             SortedMap<Integer, List<Move>> spookyPoints = possibleCompletes.stream()
                 .collect(Collectors.toMap(
-                    move -> game.numberOfSelfSpookyPointsCausedByTree(game.treeMap.get(move.index).growTree(), game.day, 3) + game.numberOfSpookyPointsComingUpForTree(game.treeMap.get(move.index), game.day, 3) - game.numberOfOpponentSpookyPointsCausedByTree(game.treeMap.get(move.index), game.day, 3),
+                    move -> game.numberOfSelfSpookyPointsCausedByTree(game.treeMap.get(move.index).growTree(), game.day, 6) + game.numberOfSpookyPointsComingUpForTree(game.treeMap.get(move.index), game.day, 6) - game.numberOfOpponentSpookyPointsCausedByTree(game.treeMap.get(move.index), game.day, 6),
                     move -> {List<Move> singletonList = new ArrayList<>(); singletonList.add(move); return singletonList;},
                     (a, b) -> {a.addAll(b); return a;},
                     () -> new TreeMap<>(Comparator.<Integer>reverseOrder()))
@@ -355,7 +385,7 @@ public class Main {
                 case 2:
                     return 19;
                 default:
-                    return 18;
+                    return 16;
             }
         }
         
@@ -367,8 +397,11 @@ public class Main {
             if (game.sun == 0 || possibleGrows.isEmpty() || game.day > getLastDayForGrow(targetTreeSize)) {
                 return;
             }
-            long baseCost = game.myTrees.stream().filter(t -> t.getSize() == targetTreeSize).count() + getBaseCost(targetTreeSize);
-            if (targetTreeSize == 3 && game.myTrees.stream().filter(t -> t.getSize() == 2).count() < game.myTrees.stream().filter(t -> t.getSize() == 3).count()) {
+            long baseCost = game.numberOfTrees(targetTreeSize, true) + getBaseCost(targetTreeSize);
+            if (targetTreeSize == 3 && game.numberOfTrees(2, true) < game.numberOfTrees(3, true)) {
+                return;
+            }
+            if (game.day < 14 && targetTreeSize == 3 && game.numberOfTrees(1, true) > 1) {
                 return;
             }
             long maxMoves = game.sun / baseCost;
@@ -385,7 +418,13 @@ public class Main {
             }
             SortedMap<Integer, List<Move>> spookyPoints = possibleGrows.stream()
                 .collect(Collectors.toMap(
-                    move -> game.numberOfOpponentSpookyPointsCausedByTree(game.treeMap.get(move.index).growTree(), game.day, 3) - game.numberOfSpookyPointsComingUpForTree(game.treeMap.get(move.index).growTree(), game.day, 3) - game.numberOfSelfSpookyPointsCausedByTree(game.treeMap.get(move.index).growTree(), game.day, 3),
+                    move -> {
+                            Tree theUpcomingTree = game.treeMap.get(move.index).growTree();
+                            if (game.numberOfSpookyPointsComingUpForTree(theUpcomingTree, game.day, 1) == theUpcomingTree.getSize()) {
+                                return Integer.MIN_VALUE;
+                            }
+                            return game.numberOfOpponentSpookyPointsCausedByTree(theUpcomingTree, game.day, 6) - game.numberOfSpookyPointsComingUpForTree(theUpcomingTree, game.day, 6) - game.numberOfSelfSpookyPointsCausedByTree(theUpcomingTree, game.day, 6);
+                        },
                     move -> {List<Move> singletonList = new ArrayList<>(); singletonList.add(move); return singletonList;},
                     (a, b) -> {a.addAll(b); return a;},
                     () -> new TreeMap<>(Comparator.<Integer>naturalOrder()))
@@ -429,7 +468,6 @@ public class Main {
                     () -> new TreeMap<>(Comparator.<Integer>reverseOrder()))
                 );
             List<Move> bestShadowMoves = shadowScores.get(shadowScores.firstKey());
-//            System.err.println("Best shadow score: " + shadowScores.firstKey());
             moveBuffer.add(bestShadowMoves.stream().sorted(Comparator.comparing(this::scoreSeedPlacementForArea).reversed()).findFirst().get());
         }
         
@@ -438,12 +476,16 @@ public class Main {
         }
     
         private int scoreSeedPlacementForShadow(Move move) {
-            Tree futureGrowth = new Tree(game.cellMap.get(move.index2), 1, true, false);
-            int size1ShadowScore = game.numberOfOpponentSpookyPointsCausedByTree(futureGrowth, game.day + 1, 3) - game.numberOfSelfSpookyPointsCausedByTree(futureGrowth, game.day + 1, 3) - game.numberOfSpookyPointsComingUpForTree(futureGrowth, game.day + 1, 3);
+            Tree futureGrowth = new Tree(game.cellMap.get(move.index2), 0, true, false);
+            if (game.numberOfSpookyPointsComingUpForTree(futureGrowth, game.day, 3) == 3) {
+                return Integer.MIN_VALUE;
+            };
             futureGrowth = futureGrowth.growTree();
-            int size2ShadowScore = game.numberOfOpponentSpookyPointsCausedByTree(futureGrowth, game.day + 2, 3) - game.numberOfSelfSpookyPointsCausedByTree(futureGrowth, game.day + 2, 3) - game.numberOfSpookyPointsComingUpForTree(futureGrowth, game.day + 2, 3);
+            int size1ShadowScore = game.numberOfOpponentSpookyPointsCausedByTree(futureGrowth, game.day + 1, 6) - game.numberOfSelfSpookyPointsCausedByTree(futureGrowth, game.day + 1, 6) - game.numberOfSpookyPointsComingUpForTree(futureGrowth, game.day + 1, 6);
             futureGrowth = futureGrowth.growTree();
-            int size3ShadowScore = game.numberOfOpponentSpookyPointsCausedByTree(futureGrowth, game.day + 3, 3) - game.numberOfSelfSpookyPointsCausedByTree(futureGrowth, game.day + 3, 3) - game.numberOfSpookyPointsComingUpForTree(futureGrowth, game.day + 3, 3);
+            int size2ShadowScore = game.numberOfOpponentSpookyPointsCausedByTree(futureGrowth, game.day + 2, 6) - game.numberOfSelfSpookyPointsCausedByTree(futureGrowth, game.day + 2, 6) - game.numberOfSpookyPointsComingUpForTree(futureGrowth, game.day + 2, 6);
+            futureGrowth = futureGrowth.growTree();
+            int size3ShadowScore = game.numberOfOpponentSpookyPointsCausedByTree(futureGrowth, game.day + 3, 6) - game.numberOfSelfSpookyPointsCausedByTree(futureGrowth, game.day + 3, 6) - game.numberOfSpookyPointsComingUpForTree(futureGrowth, game.day + 3, 6);
             return size1ShadowScore + size2ShadowScore + size3ShadowScore;
         }
         
@@ -474,7 +516,6 @@ public class Main {
             if (game.day > 12 && game.cellMap.get(move.index2).getRichness() == 3) {
                 bonus++;
             }
-//            System.err.println(move + ": " + bonus);
             return bonus;
         }
         
@@ -486,7 +527,7 @@ public class Main {
                 */
                 case PLAN_COMPLETE:
                     moveBuffer.clear();
-                    int budget = budgetManager.planCompleteBudget(day, game.nutrients, lastNutrientGrab, game.sun, game.score, game.oppScore, game.myTrees.stream().collect(Collectors.groupingBy(Tree::getSize, Collectors.reducing(0, t -> 1, Math::addExact))));
+                    int budget = budgetManager.planCompleteBudget(day, game.nutrients, lastNutrientGrab, game.sun, game.score, game.oppScore, game.numberOfTrees(3, false), game.numberOfTrees(3, true), game.myTrees.stream().filter(tree -> tree.getSize() == 3).collect(Collectors.groupingBy(tree -> tree.getCell().getRichness(), Collectors.reducing(0, t -> 1, Math::addExact))));
                     planCompletes(possibleMoves.stream().map(Move::new).filter(move -> move.getAction() == Action.COMPLETE).collect(Collectors.toList()), budget);
                     state = State.COMPLETE;
                 case COMPLETE:
