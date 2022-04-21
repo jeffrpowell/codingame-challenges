@@ -142,6 +142,9 @@ public class Main {
     }
 
     private static boolean monsterGroupIsTooClose(MonsterGrouping group) {
+        if (group.getMonsters().isEmpty()) {
+            return false;
+        }
         return group.getMonsters().stream()
             .map(m -> getEuclideanDistance(m.getXy(), baseXY))
             .min(Comparator.naturalOrder()).get() < Monster.SPEED;
