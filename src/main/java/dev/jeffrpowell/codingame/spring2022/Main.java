@@ -3,11 +3,14 @@ package dev.jeffrpowell.codingame.spring2022;
 import java.awt.geom.Point2D;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Scanner;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class Main {
     private static final Point2D MAX_PT = new Point2D.Double(17630, 9000);
@@ -57,6 +60,9 @@ public class Main {
             for (int i = 0; i < entityCount; i++) {
                 int id = in.nextInt(); // Unique identifier
                 int type = in.nextInt(); // 0=monster, 1=your hero, 2=opponent hero
+                if (type == 0) {
+                    System.err.println("Monster " + id + " is visible");
+                }
                 int x = in.nextInt(); // Position of this entity
                 int y = in.nextInt();
                 int shieldLife = in.nextInt(); // Ignore for this league; Count down until shield spell fades
@@ -67,11 +73,7 @@ public class Main {
                 int nearBase = in.nextInt(); // 0=monster with no target yet, 1=monster targeting a base
                 int threatFor = in.nextInt(); // Given this monster's trajectory, is it a threat to 1=your base, 2=your opponent's base, 0=neither
                 if (threatFor == 1 && !monsters.containsKey(id)) {
-                    Monster m = new Monster(id, x, y, health);
-                    monsters.put(id, m);
-                }
-                if (monsters.containsKey(id)) {
-                    monsters.get(id).updateState(x, y, health, vx, vy);
+                    monsters.put(id, new Monster(id, x, y, health, vx, vy));
                 }
                 if (type == 1) {
                     heroes.add(new Point2D.Double(x, y));
@@ -82,26 +84,39 @@ public class Main {
             List<Point2D> chosenTargets = new ArrayList<>();
             Iterator<Monster> i = monstersByDistance.iterator();
             MonsterGrouping group = null;
-            System.err.println(monstersByDistance.size());
             while (i.hasNext() && chosenTargets.size() < heroesPerPlayer) {
                 Monster next = i.next();
+                System.err.print("Monster " + next.getId() + " is a priority threat. ");
                 if (group == null) {
                     group = new MonsterGrouping(next);
                 } else {
                     boolean grouped = group.tryAddingMonster(next);
                     if (!grouped) {
+                        System.err.println("It's far enough from the previous group. Setting target to " + group.getCenter());
                         chosenTargets.add(group.getCenter());
                         group = new MonsterGrouping(next);
+                    }
+                    else {
+                        System.err.println("It's near enough to the previous group.");
                     }
                 }
             }
             if (turn < 5 || chosenTargets.isEmpty()) {
+                System.err.println("Defaulting to idle positions");
                 chosenTargets.add(idlePositionCenter);
                 chosenTargets.add(idlePositionTRWing);
                 chosenTargets.add(idlePositionBLWing);
             }
-            for (Point2D hero : heroes) {
-                Point2D target = chosenTargets.stream().min(Comparator.comparing(t -> getEuclideanDistance(t, hero))).get();
+            List<Point2D> targetsInHeroOrder = Stream.of(MIN_PT, MIN_PT, MIN_PT).collect(Collectors.toList());
+            Set<Point2D> claimedHeroes = new HashSet<>();
+            for (Point2D target : chosenTargets) {
+                Point2D hero = heroes.stream()
+                    .filter(h -> !claimedHeroes.contains(h))
+                    .min(Comparator.comparing(h -> getEuclideanDistance(h, target))).get();
+                claimedHeroes.add(hero);
+                targetsInHeroOrder.set(heroes.indexOf(hero), target);
+            }
+            for (Point2D target : targetsInHeroOrder) {
                 System.out.println("MOVE " + d2i(target.getX()) + " " + d2i(target.getY()));
             }
             turn++;
@@ -115,13 +130,8 @@ public class Main {
         Point2D xy;
         int health;
 
-        public Monster(int id, int x, int y, int health) {
+        public Monster(int id, int x, int y, int health, int vx, int vy) {
             this.id = id;
-            this.xy = new Point2D.Double(x, y);
-            this.health = health;
-        }
-
-        public void updateState(int x, int y, int health, int vx, int vy) {
             this.xy = applyVectorToPt(new Point2D.Double(vx, vy), new Point2D.Double(x, y));
             this.health = health;
         }
