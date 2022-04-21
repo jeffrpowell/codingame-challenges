@@ -15,12 +15,12 @@ import java.util.stream.Stream;
 public class Main {
     private static final Point2D MAX_PT = new Point2D.Double(17630, 9000);
     private static final Point2D MIN_PT = new Point2D.Double(0, 0);
-    private static final Point2D MIN_IDLE_CENTER = new Point2D.Double(5166, 2637);
-    private static final Point2D MIN_IDLE_BL_WING = new Point2D.Double(800, 5745);
-    private static final Point2D MIN_IDLE_TR_WING = new Point2D.Double(5745, 800);
-    private static final Point2D MAX_IDLE_CENTER = new Point2D.Double(12464, 6363);
-    private static final Point2D MAX_IDLE_BL_WING = new Point2D.Double(11885, 8200);
-    private static final Point2D MAX_IDLE_TR_WING = new Point2D.Double(16830, 3255);
+    private static final Point2D MIN_IDLE_CENTER = new Point2D.Double(6000, 3500);
+    private static final Point2D MIN_IDLE_BL_WING = new Point2D.Double(3600, 5800);
+    private static final Point2D MIN_IDLE_TR_WING = new Point2D.Double(7000, 800);
+    private static final Point2D MAX_IDLE_CENTER = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_CENTER.getX(), MAX_PT.getY() - MIN_IDLE_CENTER.getY());
+    private static final Point2D MAX_IDLE_BL_WING = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_TR_WING.getX(), MAX_PT.getY() - MIN_IDLE_TR_WING.getY());
+    private static final Point2D MAX_IDLE_TR_WING = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_BL_WING.getX(), MAX_PT.getY() - MIN_IDLE_BL_WING.getY());
     private static final int HERO_ATTACK_DISTANCE = 800;
     private static Point2D baseXY;
     private static Point2D oppositeBaseXY;
