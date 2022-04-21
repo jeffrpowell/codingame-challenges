@@ -47,6 +47,7 @@ public class Main {
         }
         int heroesPerPlayer = in.nextInt(); // Always 3
         int turn = 0;
+        int myMana = 0;
         
         // game loop
         while (true) {
@@ -55,6 +56,9 @@ public class Main {
             for (int i = 0; i < 2; i++) {
                 int health = in.nextInt(); // Your base health
                 int mana = in.nextInt(); // Ignore in the first league; Spend ten mana to cast a spell
+                if (i == 0) {
+                    myMana = mana;
+                }
             }
             int entityCount = in.nextInt(); // Amount of heros and monsters you can see
             for (int i = 0; i < entityCount; i++) {
@@ -81,7 +85,7 @@ public class Main {
             }
             // In the first league: MOVE <x> <y> | WAIT; In later leagues: | SPELL <spellParams>;
             List<Monster> monstersByDistance = monsters.values().stream().collect(Collectors.toList());
-            List<Point2D> chosenTargets = new ArrayList<>();
+            List<MonsterGrouping> chosenTargets = new ArrayList<>();
             Iterator<Monster> i = monstersByDistance.iterator();
             MonsterGrouping group = null;
             while (i.hasNext() && chosenTargets.size() < heroesPerPlayer) {
@@ -93,7 +97,7 @@ public class Main {
                     boolean grouped = group.tryAddingMonster(next);
                     if (!grouped) {
                         System.err.println("It's far enough from the previous group. Setting target to " + group.getCenter());
-                        chosenTargets.add(group.getCenter());
+                        chosenTargets.add(group);
                         group = new MonsterGrouping(next);
                     }
                     else {
@@ -101,26 +105,46 @@ public class Main {
                     }
                 }
             }
+            if (group != null && chosenTargets.size() < heroesPerPlayer) {
+                chosenTargets.add(group);
+            }
             if (turn < 5 || chosenTargets.isEmpty()) {
                 System.err.println("Defaulting to idle positions");
-                chosenTargets.add(idlePositionCenter);
-                chosenTargets.add(idlePositionTRWing);
-                chosenTargets.add(idlePositionBLWing);
+                chosenTargets.clear();
+                chosenTargets.add(new MonsterGrouping(idlePositionCenter));
+                chosenTargets.add(new MonsterGrouping(idlePositionTRWing));
+                chosenTargets.add(new MonsterGrouping(idlePositionBLWing));
             }
-            List<Point2D> targetsInHeroOrder = Stream.of(MIN_PT, MIN_PT, MIN_PT).collect(Collectors.toList());
+            List<MonsterGrouping> targetsInHeroOrder = Stream.<MonsterGrouping>of(null, null, null).collect(Collectors.toList());
             Set<Point2D> claimedHeroes = new HashSet<>();
-            for (Point2D target : chosenTargets) {
+            for (MonsterGrouping target : chosenTargets) {
                 Point2D hero = heroes.stream()
                     .filter(h -> !claimedHeroes.contains(h))
-                    .min(Comparator.comparing(h -> getEuclideanDistance(h, target))).get();
+                    .min(Comparator.comparing(h -> getEuclideanDistance(h, target.getCenter()))).get();
                 claimedHeroes.add(hero);
                 targetsInHeroOrder.set(heroes.indexOf(hero), target);
             }
-            for (Point2D target : targetsInHeroOrder) {
-                System.out.println("MOVE " + d2i(target.getX()) + " " + d2i(target.getY()));
+            for (MonsterGrouping target : targetsInHeroOrder) {
+                if (target == null) {
+                    System.out.println("WAIT");
+                }
+                else {
+                    if (myMana >= 10 && monsterGroupIsTooClose(target)) {
+                        System.out.println("SPELL WIND " + printPt(oppositeBaseXY));
+                    }
+                    else {
+                        System.out.println("MOVE " + printPt(target.getCenter()));
+                    }
+                }
             }
             turn++;
         }
+    }
+
+    private static boolean monsterGroupIsTooClose(MonsterGrouping group) {
+        return group.getMonsters().stream()
+            .map(m -> getEuclideanDistance(m.getXy(), baseXY))
+            .min(Comparator.naturalOrder()).get() < Monster.SPEED;
     }
 
     private static class Monster implements Comparator<Monster> {
@@ -169,6 +193,15 @@ public class Main {
             center = m.getXy();
         }
 
+        /**
+         * For when I need to target a specific pt rather than a group of monsters
+         * @param defaultPt
+         */
+        public MonsterGrouping(Point2D defaultPt) {
+            monsters = new ArrayList<>();
+            center = defaultPt;
+        }
+
         public boolean tryAddingMonster(Monster m) {
             monsters.add(m);
             Point2D newCenter = new Point2D.Double(
@@ -189,6 +222,10 @@ public class Main {
 
         }
 
+        public List<Monster> getMonsters() {
+            return monsters;
+        }
+
         public Point2D getCenter() {
             return center;
         }
@@ -200,6 +237,10 @@ public class Main {
 
     private static Point2D applyVectorToPt(Point2D vector, Point2D pt) {
         return new Point2D.Double(pt.getX() + vector.getX(), pt.getY() + vector.getY());
+    }
+
+    private static String printPt(Point2D pt) {
+        return d2i(pt.getX()) + " " + d2i(pt.getY());
     }
 
     private static int d2i(Double d) {
