@@ -92,7 +92,6 @@ public class Main {
                 int threatFor = in.nextInt(); // Given this monster's trajectory, is it a threat to 1=your base, 2=your opponent's base, 0=neither
                 if (type == 0) {
                     if (threatFor == 1) {
-                        System.err.println("ShieldLife: " + shieldLife);
                         monsters.add(new Monster(id, x, y, health, vx, vy, nearBase == 1, shieldLife > 0));
                     } else if (threatFor == 0){
                         nonThreateningMonsters.add(new Monster(id, x, y, health, vx, vy, false, shieldLife > 0));
