@@ -3,12 +3,11 @@ package dev.jeffrpowell.codingame.spring2022;
 import java.awt.geom.Point2D;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Optional;
+import java.util.PriorityQueue;
 import java.util.Scanner;
-import java.util.Set;
-import java.util.TreeMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -16,17 +15,23 @@ public class Main {
     private static final Point2D MAX_PT = new Point2D.Double(17630, 9000);
     private static final Point2D MIN_PT = new Point2D.Double(0, 0);
     private static final Point2D MIN_IDLE_CENTER = new Point2D.Double(6000, 3500);
-    private static final Point2D MIN_IDLE_BL_WING = new Point2D.Double(3600, 5800);
-    private static final Point2D MIN_IDLE_TR_WING = new Point2D.Double(7000, 800);
+    private static final Point2D MIN_IDLE_CLOSE_WING = new Point2D.Double(3600, 5800);
+    private static final Point2D MIN_IDLE_FAR_WING = new Point2D.Double(7000, 800);
+    private static final Point2D EXPLORE_CENTER = new Point2D.Double(8700, 4500);
+    private static final Point2D EXPLORE_TR_WING = new Point2D.Double(11000, 1600);
+    private static final Point2D EXPLORE_BL_WING = new Point2D.Double(6000, 7300);
     private static final Point2D MAX_IDLE_CENTER = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_CENTER.getX(), MAX_PT.getY() - MIN_IDLE_CENTER.getY());
-    private static final Point2D MAX_IDLE_BL_WING = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_TR_WING.getX(), MAX_PT.getY() - MIN_IDLE_TR_WING.getY());
-    private static final Point2D MAX_IDLE_TR_WING = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_BL_WING.getX(), MAX_PT.getY() - MIN_IDLE_BL_WING.getY());
+    private static final Point2D MAX_IDLE_FAR_WING = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_FAR_WING.getX(), MAX_PT.getY() - MIN_IDLE_FAR_WING.getY());
+    private static final Point2D MAX_IDLE_CLOSE_WING = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_CLOSE_WING.getX(), MAX_PT.getY() - MIN_IDLE_CLOSE_WING.getY());
     private static final int HERO_ATTACK_DISTANCE = 800;
     private static Point2D baseXY;
     private static Point2D oppositeBaseXY;
     private static Point2D idlePositionCenter;
-    private static Point2D idlePositionBLWing;
-    private static Point2D idlePositionTRWing;
+    private static Point2D idlePositionFarWing;
+    private static Point2D idlePositionCloseWing;
+    private static Point2D explorePositionCenter;
+    private static Point2D explorePositionFarWing;
+    private static Point2D explorePositionCloseWing;
 
     public static void main(String args[]) {
         Scanner in = new Scanner(System.in);
@@ -36,14 +41,20 @@ public class Main {
             baseXY = MIN_PT;
             oppositeBaseXY = MAX_PT;
             idlePositionCenter = MIN_IDLE_CENTER;
-            idlePositionBLWing = MIN_IDLE_BL_WING;
-            idlePositionTRWing = MIN_IDLE_TR_WING;
+            idlePositionFarWing = MIN_IDLE_FAR_WING;
+            idlePositionCloseWing = MIN_IDLE_CLOSE_WING;
+            explorePositionCenter = EXPLORE_CENTER;
+            explorePositionFarWing = EXPLORE_BL_WING;
+            explorePositionCloseWing = EXPLORE_TR_WING;
         } else {
             baseXY = MAX_PT;
             oppositeBaseXY = MIN_PT;
             idlePositionCenter = MAX_IDLE_CENTER;
-            idlePositionBLWing = MAX_IDLE_BL_WING;
-            idlePositionTRWing = MAX_IDLE_TR_WING;
+            idlePositionFarWing = MAX_IDLE_FAR_WING;
+            idlePositionCloseWing = MAX_IDLE_CLOSE_WING;
+            explorePositionCenter = EXPLORE_CENTER;
+            explorePositionFarWing = EXPLORE_TR_WING;
+            explorePositionCloseWing = EXPLORE_BL_WING;
         }
         int heroesPerPlayer = in.nextInt(); // Always 3
         int turn = 0;
@@ -51,8 +62,9 @@ public class Main {
         
         // game loop
         while (true) {
-            TreeMap<Integer, Monster> monsters = new TreeMap<>();
-            List<Point2D> heroes = new ArrayList<>();
+            PriorityQueue<Monster> monsters = new PriorityQueue<>();
+            List<Monster> nonThreateningMonsters = new ArrayList<>();
+            List<Hero> heroes = new ArrayList<>();
             for (int i = 0; i < 2; i++) {
                 int health = in.nextInt(); // Your base health
                 int mana = in.nextInt(); // Ignore in the first league; Spend ten mana to cast a spell
@@ -76,27 +88,40 @@ public class Main {
                 int vy = in.nextInt();
                 int nearBase = in.nextInt(); // 0=monster with no target yet, 1=monster targeting a base
                 int threatFor = in.nextInt(); // Given this monster's trajectory, is it a threat to 1=your base, 2=your opponent's base, 0=neither
-                if (threatFor == 1 && !monsters.containsKey(id)) {
-                    monsters.put(id, new Monster(id, x, y, health, vx, vy));
+                if (type == 0) {
+                    if (threatFor == 1) {
+                        monsters.add(new Monster(id, x, y, health, vx, vy));
+                    } else {
+                        nonThreateningMonsters.add(new Monster(id, x, y, health, vx, vy));
+                    }
                 }
-                if (type == 1) {
-                    heroes.add(new Point2D.Double(x, y));
+                else if (type == 1) {
+                    Point2D idlePt = idlePositionCenter;
+                    Point2D explorePt = explorePositionCenter;
+                    if (id == 1 || id == 4) {
+                        idlePt = idlePositionCloseWing;
+                        explorePt = explorePositionCloseWing;
+                    } else if (id == 2 || id == 5) {
+                        idlePt = idlePositionFarWing;
+                        explorePt = explorePositionFarWing;
+                    }
+                    heroes.add(new Hero(id, new Point2D.Double(x, y), idlePt, explorePt));
                 }
             }
             // In the first league: MOVE <x> <y> | WAIT; In later leagues: | SPELL <spellParams>;
-            List<Monster> monstersByDistance = monsters.values().stream().collect(Collectors.toList());
+            List<Monster> monstersByDistance = monsters.stream().collect(Collectors.toList());
             List<MonsterGrouping> chosenTargets = new ArrayList<>();
             Iterator<Monster> i = monstersByDistance.iterator();
             MonsterGrouping group = null;
             while (i.hasNext() && chosenTargets.size() < heroesPerPlayer) {
                 Monster next = i.next();
-                System.err.print("Monster " + next.getId() + " is a priority threat. ");
+                System.err.println("Monster " + next.getId() + " is a priority threat. ");
                 if (group == null) {
                     group = new MonsterGrouping(next);
                 } else {
                     boolean grouped = group.tryAddingMonster(next);
                     if (!grouped) {
-                        System.err.println("It's far enough from the previous group. Setting target to " + group.getCenter());
+                        System.err.println("It's far enough from the previous group.");
                         chosenTargets.add(group);
                         group = new MonsterGrouping(next);
                     }
@@ -108,59 +133,139 @@ public class Main {
             if (group != null && chosenTargets.size() < heroesPerPlayer) {
                 chosenTargets.add(group);
             }
-            if (turn < 5 || chosenTargets.isEmpty()) {
-                System.err.println("Defaulting to idle positions");
-                chosenTargets.clear();
-                chosenTargets.add(new MonsterGrouping(idlePositionCenter));
-                chosenTargets.add(new MonsterGrouping(idlePositionTRWing));
-                chosenTargets.add(new MonsterGrouping(idlePositionBLWing));
-            }
-            List<MonsterGrouping> targetsInHeroOrder = Stream.<MonsterGrouping>of(null, null, null).collect(Collectors.toList());
-            Set<Point2D> claimedHeroes = new HashSet<>();
             for (MonsterGrouping target : chosenTargets) {
-                Point2D hero = heroes.stream()
-                    .filter(h -> !claimedHeroes.contains(h))
-                    .min(Comparator.comparing(h -> getEuclideanDistance(h, target.getCenter()))).get();
-                claimedHeroes.add(hero);
-                targetsInHeroOrder.set(heroes.indexOf(hero), target);
+                heroes.stream()
+                    .filter(h -> !h.hasTarget())
+                    .min(Comparator.comparing(h -> getEuclideanDistance(h.getXy(), target.getTarget()))).get()
+                    .targetThisGroup(target, myMana);
             }
-            for (MonsterGrouping target : targetsInHeroOrder) {
-                if (target == null) {
-                    System.out.println("WAIT");
+            for (Hero hero : heroes) {
+                if (!hero.hasTarget()) {
+                    hero.findATarget(heroes, turn, nonThreateningMonsters);
                 }
-                else {
-                    if (myMana >= 10 && monsterGroupIsTooClose(target)) {
-                        System.out.println("SPELL WIND " + printPt(oppositeBaseXY));
-                    }
-                    else {
-                        System.out.println("MOVE " + printPt(target.getCenter()));
-                    }
-                }
+                System.out.println(hero.getTarget().printTarget());
             }
             turn++;
         }
     }
 
-    private static boolean monsterGroupIsTooClose(MonsterGrouping group) {
-        if (group.getMonsters().isEmpty()) {
-            return false;
+    private static class Hero {
+        int id;
+        Point2D xy;
+        IdlePt idleTarget;
+        IdlePt exploreTarget;
+        Target target;
+        boolean hasTarget;
+        boolean couldUseBackup;
+
+        public Hero(int id, Point2D xy, Point2D idleTargetPt, Point2D exploreTargetPt) {
+            this.id = id;
+            this.xy = xy;
+            this.idleTarget = new IdlePt(idleTargetPt);
+            this.exploreTarget = new IdlePt(exploreTargetPt);
+            this.target = null;
+            this.hasTarget = false;
+            this.couldUseBackup = false;
         }
-        return group.getMonsters().stream()
-            .map(m -> getEuclideanDistance(m.getXy(), baseXY))
-            .min(Comparator.naturalOrder()).get() < Monster.SPEED;
+
+        public int getId() {
+            return id;
+        }
+
+        public Point2D getXy() {
+            return xy;
+        }
+
+        public boolean hasTarget() {
+            return hasTarget;
+        }
+
+        public boolean couldUseBackup() {
+            return couldUseBackup;
+        }
+
+        public void targetThisGroup(MonsterGrouping group, int myMana) {
+            this.hasTarget = true;
+            this.couldUseBackup = group.getMonsters().size() > 2;
+            if (myMana >= 10 && monsterGroupIsTooClose(group)) {
+                Monster monsterClosestToBase = group.getMonsterClosestToBase();
+                double distanceToFurthestMonster = getEuclideanDistance(xy, monsterClosestToBase.getXy());
+                if (distanceToFurthestMonster <= 1280) {
+                    System.err.println("Hero " + id + " is too close to home; wind spell");
+                    this.target = new WindSpell(oppositeBaseXY);
+                    return;
+                }
+                // else if (distanceToFurthestMonster > 1280 && distanceToFurthestMonster <= 2200) {
+                //     System.err.println("Monsters are too close to home; trying to redirect and buy time");
+                //     this.target = new ControlSpell(monsterClosestToBase.getId(), monsterClosestToBase.getReverseDirection());
+                //     return;
+                // }
+            }
+            System.err.println("Hero " + id + " is tracking group containing " + group.getMonsters().stream().map(Monster::getId).map(i -> i.toString()).collect(Collectors.joining(",")));
+            this.target = group;
+        }
+
+        public void findATarget(List<Hero> allHeroes, int turn, List<Monster> nonThreateningMonsters) {
+            List<Hero> otherHeroes = allHeroes.stream().filter(h -> h.getId() != this.id).collect(Collectors.toList());
+            //PROVIDE URGENT BACKUP
+            Optional<Target> needsBackup = otherHeroes.stream()
+                .filter(Hero::couldUseBackup)
+                .map(Hero::getTarget)
+                .min(Comparator.comparing(t -> getEuclideanDistance(t.getTarget(), xy)));
+            if (needsBackup.isPresent()) {
+                System.err.println("Hero " + id + " giving backup");
+                this.target = needsBackup.get();
+                return;
+            }
+            //RETURN TO CENTER COURT
+            if (getEuclideanDistance(xy, baseXY) < 6000) {
+                System.err.println("Hero " + id + " getting out of the base");
+                this.target = idleTarget;
+                return;
+            }
+            //GATHER WILD MANA
+            Optional<Monster> closestMonster = nonThreateningMonsters.stream().min(Comparator.comparing(m -> getEuclideanDistance(xy, m.getXy())));
+            if (closestMonster.isPresent()) {
+                this.target = new MonsterGrouping(closestMonster.get());
+                System.err.println("Hero " + id + " gathering mana from monster " + closestMonster.get().getId());
+                return;
+            }
+            //EXPLORE
+            System.err.println("Hero " + id + " not finding anything; exploring now");
+            this.target = Stream.of(idleTarget, exploreTarget).max(Comparator.comparing(t -> getEuclideanDistance(t.getTarget(), xy))).get();
+        }
+
+        private static boolean monsterGroupIsTooClose(MonsterGrouping group) {
+            if (group.getMonsters().isEmpty()) {
+                return false;
+            }
+            return getEuclideanDistance(group.getMonsterClosestToBase().getXy(), baseXY) <= 5000;
+        }
+
+        public Target getTarget() {
+            if (target != null) {
+                return target;
+            }
+            System.err.println("Hero " + id + " unexpectedly lacking a target, going to center");
+            return new IdlePt(idlePositionCenter);
+        }
+        
     }
 
-    private static class Monster implements Comparator<Monster> {
+    private static class Monster implements Comparable<Monster>, Comparator<Monster> {
         static final int SPEED = 400;
         static final int ATTACK_DISTANCE = 300;
         int id;
         Point2D xy;
         int health;
+        Point2D reverseDirection;
 
         public Monster(int id, int x, int y, int health, int vx, int vy) {
             this.id = id;
-            this.xy = applyVectorToPt(new Point2D.Double(vx, vy), new Point2D.Double(x, y));
+            Point2D currentXy = new Point2D.Double(x, y);
+            this.xy = applyVectorToPt(new Point2D.Double(vx, vy), currentXy);
             this.health = health;
+            this.reverseDirection = applyVectorToPt(new Point2D.Double(-vx, -vy), currentXy);
         }
 
         @Override
@@ -170,6 +275,11 @@ public class Main {
                 return Integer.compare(m1.health, m2.health);
             }
             return dist;
+        }
+
+        @Override
+        public int compareTo(Monster o) {
+            return compare(this, o);
         }
 
         public int getId() {
@@ -184,9 +294,91 @@ public class Main {
             return health;
         }
 
+        public Point2D getReverseDirection() {
+            return reverseDirection;
+        }
+
+        @Override
+        public int hashCode() {
+            final int prime = 31;
+            int result = 1;
+            result = prime * result + id;
+            return result;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj)
+                return true;
+            if (obj == null)
+                return false;
+            if (getClass() != obj.getClass())
+                return false;
+            Monster other = (Monster) obj;
+            return id == other.id;
+        }
+
     }
 
-    private static class MonsterGrouping {
+    private static interface Target {
+        public Point2D getTarget();
+        public default String printTarget() {
+            return "MOVE " + printPt(getTarget());
+        };
+    }
+    
+    private static class IdlePt implements Target {
+        private Point2D pt;
+
+        public IdlePt(Point2D pt) {
+            this.pt = pt;
+        }
+
+        @Override
+        public Point2D getTarget() {
+            return pt;
+        }
+    }
+
+    private static class WindSpell implements Target {
+        private Point2D direction;
+
+        public WindSpell(Point2D direction) {
+            this.direction = direction;
+        }
+
+        @Override
+        public Point2D getTarget() {
+            return direction;
+        }
+
+        @Override
+        public String printTarget() {
+            return "SPELL WIND " + printPt(direction);
+        }
+    }
+
+    private static class ControlSpell implements Target {
+        private int entityId;
+        private Point2D direction;
+
+        public ControlSpell(int entityId, Point2D direction) {
+            this.entityId = entityId;
+            this.direction = direction;
+        }
+
+        @Override
+        public Point2D getTarget() {
+            return direction;
+        }
+
+        @Override
+        public String printTarget() {
+            return "SPELL CONTROL " + entityId + " " + printPt(direction);
+        }
+    }
+
+    private static class MonsterGrouping implements Target{
         List<Monster> monsters;
         Point2D center;
 
@@ -194,15 +386,6 @@ public class Main {
             monsters = new ArrayList<>();
             monsters.add(m);
             center = m.getXy();
-        }
-
-        /**
-         * For when I need to target a specific pt rather than a group of monsters
-         * @param defaultPt
-         */
-        public MonsterGrouping(Point2D defaultPt) {
-            monsters = new ArrayList<>();
-            center = defaultPt;
         }
 
         public boolean tryAddingMonster(Monster m) {
@@ -225,11 +408,20 @@ public class Main {
 
         }
 
+        public Monster getMonsterClosestToBase() {
+            return monsters.stream().min(Comparator.comparing(m -> getEuclideanDistance(m.getXy(), baseXY))).get();
+        }
+
         public List<Monster> getMonsters() {
             return monsters;
         }
 
         public Point2D getCenter() {
+            return center;
+        }
+        
+        @Override
+        public Point2D getTarget(){
             return center;
         }
     }
