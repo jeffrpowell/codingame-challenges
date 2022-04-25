@@ -16,7 +16,7 @@ import java.util.stream.Stream;
 public class Main {
     private static final Point2D MAX_PT = new Point2D.Double(17630, 9000);
     private static final Point2D MIN_PT = new Point2D.Double(0, 0);
-    private static final Point2D MIN_IDLE_CENTER = new Point2D.Double(6000, 3500);
+    private static final Point2D MIN_IDLE_CENTER = new Point2D.Double(10400, 6000);
     private static final Point2D MIN_IDLE_CLOSE_WING = new Point2D.Double(7000, 800);
     private static final Point2D MIN_IDLE_FAR_WING = new Point2D.Double(3500, 6000);
     private static final Point2D EXPLORE_CENTER = new Point2D.Double(8700, 4500);
@@ -251,16 +251,16 @@ public class Main {
                 return;
             }
             //EXPLORE
-            if (state == State.EXPLORE && getEuclideanDistance(xy, exploreTarget.getTarget()) > 800) {
+            if (state == State.EXPLORE && getEuclideanDistance(xy, exploreTarget.getTarget()) > (2 * HERO_ATTACK_DISTANCE)) {
                 System.err.println("Hero " + id + " not finding anything; exploring now");
                 this.target = exploreTarget;
             }
-            else if (state == State.EXPLORE && getEuclideanDistance(xy, exploreTarget.getTarget()) <= 800){
+            else if (state == State.EXPLORE && getEuclideanDistance(xy, exploreTarget.getTarget()) <= (2 * HERO_ATTACK_DISTANCE)){
                 state = State.IDLE;
             }
             System.err.println("Hero " + id + " not finding anything; idling now");
             this.target = idleTarget;
-            if (state == State.IDLE && getEuclideanDistance(xy, idleTarget.getTarget()) <= 800){
+            if (state == State.IDLE && getEuclideanDistance(xy, idleTarget.getTarget()) <= HERO_ATTACK_DISTANCE){
                 state = State.EXPLORE;
             }
         }
