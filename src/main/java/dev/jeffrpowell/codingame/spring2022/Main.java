@@ -8,6 +8,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Scanner;
+import java.util.SortedMap;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -27,17 +29,17 @@ public class Main {
     private static final int HERO_ATTACK_DISTANCE = 800;
     private static Point2D baseXY;
     private static Point2D oppositeBaseXY;
-    private static Point2D idlePositionCenter;
-    private static Point2D idlePositionFarWing;
-    private static Point2D idlePositionCloseWing;
-    private static Point2D explorePositionCenter;
-    private static Point2D explorePositionFarWing;
-    private static Point2D explorePositionCloseWing;
 
     public static void main(String args[]) {
         Scanner in = new Scanner(System.in);
         int baseX = in.nextInt(); // The corner of the map representing your base
         int baseY = in.nextInt();
+        Point2D idlePositionCenter;
+        Point2D idlePositionFarWing;
+        Point2D idlePositionCloseWing;
+        Point2D explorePositionCenter;
+        Point2D explorePositionFarWing;
+        Point2D explorePositionCloseWing;
         if (baseX == 0) {
             baseXY = MIN_PT;
             oppositeBaseXY = MAX_PT;
@@ -61,7 +63,7 @@ public class Main {
         int turn = 0;
         int myMana = 0;
         List<Boolean> heroIdleOverride = Stream.generate(() -> false).limit(3).collect(Collectors.toList());
-        List<Hero> heroes = new ArrayList<>();
+        SortedMap<Integer, Hero> heroes = new TreeMap<>();
         
         // game loop
         while (true) {
@@ -115,7 +117,12 @@ public class Main {
                         heroIdleOverride.set(idleOverridesIndex, false);
                     }
                     idleOverridesIndex++;
-                    heroes.add(new Hero(id, heroXy, idlePt, explorePt, idleOverride));
+                    if (turn == 0){
+                        heroes.put(id, new Hero(id, heroXy, idlePt, explorePt, idleOverride));
+                    }
+                    else {
+                        heroes.get(id).updateHero(x, y, idleOverride);
+                    }
                 }
             }
             // In the first league: MOVE <x> <y> | WAIT; In later leagues: | SPELL <spellParams>;
@@ -144,18 +151,20 @@ public class Main {
                 chosenTargets.add(group);
             }
             for (MonsterGrouping target : chosenTargets) {
-                heroes.stream()
+                heroes.values().stream()
                     .filter(h -> !h.hasTarget())
                     .min(Comparator.comparing(h -> getEuclideanDistance(h.getXy(), target.getTarget()))).get()
                     .targetThisGroup(target, myMana);
             }
+            List<Hero> heroList = heroes.values().stream().collect(Collectors.toList());
             for (int ih = 0; ih < heroesPerPlayer; ih++) {
-                Hero hero = heroes.get(ih);
+                Hero hero = heroList.get(ih);
                 if (!hero.hasTarget()) {
-                    boolean applyIdleOverride = hero.findATarget(heroes, turn, nonThreateningMonsters);
+                    boolean applyIdleOverride = hero.findATarget(heroList, turn, nonThreateningMonsters);
                     heroIdleOverride.set(ih, applyIdleOverride);
                 }
                 System.out.println(hero.getTarget().printTarget());
+                hero.resetHero();
             }
             turn++;
         }
@@ -180,6 +189,17 @@ public class Main {
             this.hasTarget = false;
             this.couldUseBackup = false;
             this.idleOverride = idleOverride;
+        }
+
+        public void updateHero(int x, int y, boolean idleOverride) {
+            this.xy = new Point2D.Double(x, y);
+            this.idleOverride = idleOverride;
+        }
+
+        public void resetHero() {
+            this.target = null;
+            this.hasTarget = false;
+            this.couldUseBackup = false;
         }
 
         public int getId() {
@@ -278,7 +298,7 @@ public class Main {
                 return target;
             }
             System.err.println("Hero " + id + " unexpectedly lacking a target, going to center");
-            return new IdlePt(idlePositionCenter);
+            return new IdlePt(EXPLORE_CENTER);
         }
         
     }
