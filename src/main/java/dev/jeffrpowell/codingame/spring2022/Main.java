@@ -260,6 +260,9 @@ public class Main {
             }
             System.err.println("Hero " + id + " not finding anything; idling now");
             this.target = idleTarget;
+            if (state == State.IDLE && getEuclideanDistance(xy, idleTarget.getTarget()) <= 800){
+                state = State.EXPLORE;
+            }
         }
 
         private static boolean monsterGroupIsTooClose(MonsterGrouping group) {
