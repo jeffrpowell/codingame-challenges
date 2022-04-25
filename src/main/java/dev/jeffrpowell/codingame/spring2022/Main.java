@@ -23,6 +23,7 @@ public class Main {
     private static final Point2D MAX_IDLE_CENTER = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_CENTER.getX(), MAX_PT.getY() - MIN_IDLE_CENTER.getY());
     private static final Point2D MAX_IDLE_FAR_WING = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_FAR_WING.getX(), MAX_PT.getY() - MIN_IDLE_FAR_WING.getY());
     private static final Point2D MAX_IDLE_CLOSE_WING = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_CLOSE_WING.getX(), MAX_PT.getY() - MIN_IDLE_CLOSE_WING.getY());
+    private static final int BASE_RANGE = 5000;
     private static final int HERO_ATTACK_DISTANCE = 800;
     private static Point2D baseXY;
     private static Point2D oppositeBaseXY;
@@ -60,12 +61,12 @@ public class Main {
         int turn = 0;
         int myMana = 0;
         List<Boolean> heroIdleOverride = Stream.generate(() -> false).limit(3).collect(Collectors.toList());
+        List<Hero> heroes = new ArrayList<>();
         
         // game loop
         while (true) {
             PriorityQueue<Monster> monsters = new PriorityQueue<>();
             List<Monster> nonThreateningMonsters = new ArrayList<>();
-            List<Hero> heroes = new ArrayList<>();
             int idleOverridesIndex = 0;
             for (int i = 0; i < 2; i++) {
                 int health = in.nextInt(); // Your base health
@@ -109,7 +110,7 @@ public class Main {
                     }
                     boolean idleOverride = heroIdleOverride.get(idleOverridesIndex);
                     Point2D heroXy = new Point2D.Double(x, y);
-                    if (getEuclideanDistance(heroXy, idlePt) < 800) {
+                    if (getEuclideanDistance(heroXy, idlePt) < HERO_ATTACK_DISTANCE) {
                         idleOverride = false;
                         heroIdleOverride.set(idleOverridesIndex, false);
                     }
@@ -294,10 +295,9 @@ public class Main {
 
         public Monster(int id, int x, int y, int health, int vx, int vy, boolean insideBase, boolean shielded) {
             this.id = id;
-            Point2D currentXy = new Point2D.Double(x, y);
-            this.xy = applyVectorToPt(new Point2D.Double(vx, vy), currentXy);
+            this.xy = new Point2D.Double(x, y);
             this.health = health;
-            this.reverseDirection = applyVectorToPt(new Point2D.Double(-vx, -vy), currentXy);
+            this.reverseDirection = applyVectorToPt(new Point2D.Double(-vx, -vy), this.xy);
             this.insideBase = insideBase;
             this.shielded = shielded;
         }
@@ -382,6 +382,8 @@ public class Main {
     }
 
     private static class WindSpell implements Target {
+        public static int RANGE = 1280;
+        public static int PUSH = 2200;
         private Point2D direction;
 
         public WindSpell(Point2D direction) {
@@ -400,6 +402,7 @@ public class Main {
     }
 
     private static class ControlSpell implements Target {
+        public static int RANGE = 2200;
         private int entityId;
         private Point2D direction;
 
@@ -416,6 +419,26 @@ public class Main {
         @Override
         public String printTarget() {
             return "SPELL CONTROL " + entityId + " " + printPt(direction);
+        }
+    }
+
+    private static class ShieldSpell implements Target {
+        public static int RANGE = 2200;
+        public static int DURATION = 12;
+        private int entityId;
+
+        public ShieldSpell(int entityId) {
+            this.entityId = entityId;
+        }
+
+        @Override
+        public Point2D getTarget() {
+            return null;
+        }
+
+        @Override
+        public String printTarget() {
+            return "SPELL SHIELD " + entityId;
         }
     }
 
