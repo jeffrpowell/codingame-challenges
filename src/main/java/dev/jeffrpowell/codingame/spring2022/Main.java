@@ -17,14 +17,14 @@ public class Main {
     private static final Point2D MAX_PT = new Point2D.Double(17630, 9000);
     private static final Point2D MIN_PT = new Point2D.Double(0, 0);
     private static final Point2D MIN_IDLE_CENTER = new Point2D.Double(6000, 3500);
-    private static final Point2D MIN_IDLE_CLOSE_WING = new Point2D.Double(3600, 5800);
-    private static final Point2D MIN_IDLE_FAR_WING = new Point2D.Double(7000, 800);
+    private static final Point2D MIN_IDLE_CLOSE_WING = new Point2D.Double(7000, 800);
+    private static final Point2D MIN_IDLE_FAR_WING = new Point2D.Double(3500, 6000);
     private static final Point2D EXPLORE_CENTER = new Point2D.Double(8700, 4500);
     private static final Point2D EXPLORE_TR_WING = new Point2D.Double(11000, 1600);
     private static final Point2D EXPLORE_BL_WING = new Point2D.Double(6000, 7300);
     private static final Point2D MAX_IDLE_CENTER = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_CENTER.getX(), MAX_PT.getY() - MIN_IDLE_CENTER.getY());
-    private static final Point2D MAX_IDLE_FAR_WING = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_FAR_WING.getX(), MAX_PT.getY() - MIN_IDLE_FAR_WING.getY());
-    private static final Point2D MAX_IDLE_CLOSE_WING = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_CLOSE_WING.getX(), MAX_PT.getY() - MIN_IDLE_CLOSE_WING.getY());
+    private static final Point2D MAX_IDLE_FAR_WING = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_CLOSE_WING.getX(), MAX_PT.getY() - MIN_IDLE_CLOSE_WING.getY());
+    private static final Point2D MAX_IDLE_CLOSE_WING = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_FAR_WING.getX(), MAX_PT.getY() - MIN_IDLE_FAR_WING.getY());
     private static final int BASE_RANGE = 5000;
     private static final int HERO_ATTACK_DISTANCE = 800;
     private static Point2D baseXY;
@@ -62,14 +62,12 @@ public class Main {
         int heroesPerPlayer = in.nextInt(); // Always 3
         int turn = 0;
         int myMana = 0;
-        List<Boolean> heroIdleOverride = Stream.generate(() -> false).limit(3).collect(Collectors.toList());
         SortedMap<Integer, Hero> heroes = new TreeMap<>();
         
         // game loop
         while (true) {
             PriorityQueue<Monster> monsters = new PriorityQueue<>();
             List<Monster> nonThreateningMonsters = new ArrayList<>();
-            int idleOverridesIndex = 0;
             for (int i = 0; i < 2; i++) {
                 int health = in.nextInt(); // Your base health
                 int mana = in.nextInt(); // Ignore in the first league; Spend ten mana to cast a spell
@@ -101,27 +99,20 @@ public class Main {
                     }
                 }
                 else if (type == 1) {
-                    Point2D idlePt = idlePositionCenter;
-                    Point2D explorePt = explorePositionCenter;
-                    if (id == 1 || id == 4) {
-                        idlePt = idlePositionCloseWing;
-                        explorePt = explorePositionCloseWing;
-                    } else if (id == 2 || id == 5) {
-                        idlePt = idlePositionFarWing;
-                        explorePt = explorePositionFarWing;
-                    }
-                    boolean idleOverride = heroIdleOverride.get(idleOverridesIndex);
-                    Point2D heroXy = new Point2D.Double(x, y);
-                    if (getEuclideanDistance(heroXy, idlePt) < HERO_ATTACK_DISTANCE) {
-                        idleOverride = false;
-                        heroIdleOverride.set(idleOverridesIndex, false);
-                    }
-                    idleOverridesIndex++;
                     if (turn == 0){
-                        heroes.put(id, new Hero(id, heroXy, idlePt, explorePt, idleOverride));
+                        Point2D idlePt = idlePositionCenter;
+                        Point2D explorePt = explorePositionCenter;
+                        if (id == 1 || id == 4) {
+                            idlePt = idlePositionCloseWing;
+                            explorePt = explorePositionCloseWing;
+                        } else if (id == 2 || id == 5) {
+                            idlePt = idlePositionFarWing;
+                            explorePt = explorePositionFarWing;
+                        }
+                        heroes.put(id, new Hero(id, x, y, idlePt, explorePt));
                     }
                     else {
-                        heroes.get(id).updateHero(x, y, idleOverride);
+                        heroes.get(id).updateHero(x, y);
                     }
                 }
             }
@@ -160,8 +151,7 @@ public class Main {
             for (int ih = 0; ih < heroesPerPlayer; ih++) {
                 Hero hero = heroList.get(ih);
                 if (!hero.hasTarget()) {
-                    boolean applyIdleOverride = hero.findATarget(heroList, turn, nonThreateningMonsters);
-                    heroIdleOverride.set(ih, applyIdleOverride);
+                    hero.findATarget(heroList, turn, nonThreateningMonsters);
                 }
                 System.out.println(hero.getTarget().printTarget());
                 hero.resetHero();
@@ -171,6 +161,7 @@ public class Main {
     }
 
     private static class Hero {
+        static enum State {EXPLORE, IDLE}
         int id;
         Point2D xy;
         IdlePt idleTarget;
@@ -178,22 +169,21 @@ public class Main {
         Target target;
         boolean hasTarget;
         boolean couldUseBackup;
-        boolean idleOverride;
+        State state;
 
-        public Hero(int id, Point2D xy, Point2D idleTargetPt, Point2D exploreTargetPt, boolean idleOverride) {
+        public Hero(int id, int x, int y, Point2D idleTargetPt, Point2D exploreTargetPt) {
             this.id = id;
-            this.xy = xy;
+            this.xy = new Point2D.Double(x, y);
             this.idleTarget = new IdlePt(idleTargetPt);
             this.exploreTarget = new IdlePt(exploreTargetPt);
             this.target = null;
             this.hasTarget = false;
             this.couldUseBackup = false;
-            this.idleOverride = idleOverride;
+            state = State.IDLE;
         }
 
-        public void updateHero(int x, int y, boolean idleOverride) {
+        public void updateHero(int x, int y) {
             this.xy = new Point2D.Double(x, y);
-            this.idleOverride = idleOverride;
         }
 
         public void resetHero() {
@@ -239,14 +229,7 @@ public class Main {
             this.target = group;
         }
 
-        /**
-         * 
-         * @param allHeroes
-         * @param turn
-         * @param nonThreateningMonsters
-         * @return Whether an idleOverride should be applied for this hero
-         */
-        public boolean findATarget(List<Hero> allHeroes, int turn, List<Monster> nonThreateningMonsters) {
+        public void findATarget(List<Hero> allHeroes, int turn, List<Monster> nonThreateningMonsters) {
             List<Hero> otherHeroes = allHeroes.stream().filter(h -> h.getId() != this.id).collect(Collectors.toList());
             //PROVIDE URGENT BACKUP
             Optional<Target> needsBackup = otherHeroes.stream()
@@ -255,28 +238,28 @@ public class Main {
                 .min(Comparator.comparing(t -> getEuclideanDistance(t.getTarget(), xy)));
             if (needsBackup.isPresent()) {
                 System.err.println("Hero " + id + " giving backup");
-                this.target = needsBackup.get();
-                return false;
+                target = needsBackup.get();
+                state = State.IDLE;
+                return;
             }
             //GATHER WILD MANA
             Optional<Monster> closestMonster = nonThreateningMonsters.stream().min(Comparator.comparing(m -> getEuclideanDistance(xy, m.getXy())));
-            if (closestMonster.isPresent()) {
-                this.target = new MonsterGrouping(closestMonster.get());
+            if (closestMonster.isPresent() && getEuclideanDistance(closestMonster.get().getXy(), xy) < BASE_RANGE) {
+                target = new MonsterGrouping(closestMonster.get());
                 System.err.println("Hero " + id + " gathering mana from monster " + closestMonster.get().getId());
-                return false;
+                state = State.IDLE;
+                return;
             }
             //EXPLORE
-            if (!idleOverride && getEuclideanDistance(xy, exploreTarget.getTarget()) > 800) {
+            if (state == State.EXPLORE && getEuclideanDistance(xy, exploreTarget.getTarget()) > 800) {
                 System.err.println("Hero " + id + " not finding anything; exploring now");
                 this.target = exploreTarget;
-                return idleOverride;
             }
-            else if (getEuclideanDistance(xy, exploreTarget.getTarget()) <= 800){
-                idleOverride = true;
+            else if (state == State.EXPLORE && getEuclideanDistance(xy, exploreTarget.getTarget()) <= 800){
+                state = State.IDLE;
             }
             System.err.println("Hero " + id + " not finding anything; idling now");
             this.target = idleTarget;
-            return idleOverride;
         }
 
         private static boolean monsterGroupIsTooClose(MonsterGrouping group) {
