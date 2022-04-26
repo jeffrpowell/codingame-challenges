@@ -265,7 +265,6 @@ public class Main {
         IdlePt exploreTarget;
         Target target;
         boolean hasTarget;
-        boolean couldUseBackup;
         State heroState;
 
         public Hero(int id, int x, int y, Point2D idleTargetPt, Point2D exploreTargetPt, boolean shielded, boolean insideBase, GameState state) {
@@ -274,7 +273,6 @@ public class Main {
             this.exploreTarget = new IdlePt(exploreTargetPt);
             this.target = null;
             this.hasTarget = false;
-            this.couldUseBackup = false;
             this.heroState = State.IDLE;
         }
 
@@ -287,7 +285,6 @@ public class Main {
             this.exploreTarget = null;
             this.target = null;
             this.hasTarget = false;
-            this.couldUseBackup = false;
             this.heroState = State.IDLE;
         }
 
@@ -300,20 +297,14 @@ public class Main {
         public void resetHero() {
             this.target = null;
             this.hasTarget = false;
-            this.couldUseBackup = false;
         }
 
         public boolean hasTarget() {
             return hasTarget;
         }
 
-        public boolean couldUseBackup() {
-            return couldUseBackup;
-        }
-
         public void targetThisGroup(EntityGrouping group) {
             this.hasTarget = true;
-            this.couldUseBackup = group.getEntities().size() > 2;
             if (state.myMana >= 10 && entityGroupIsTooClose(group) && entityGroupIsUnshielded(group)) {
                 Entity entityClosestToBase = group.getEntityClosestToBase();
                 double distanceToFurthestEntity = getEuclideanDistance(xy, entityClosestToBase.getXy());
@@ -328,18 +319,6 @@ public class Main {
         }
 
         public void findATarget() {
-            List<Hero> otherHeroes = state.heroes.values().stream().filter(h -> h.getId() != this.id).collect(Collectors.toList());
-            //PROVIDE URGENT BACKUP
-            Optional<Target> needsBackup = otherHeroes.stream()
-                .filter(Hero::couldUseBackup)
-                .map(Hero::getTarget)
-                .min(Comparator.comparing(t -> getEuclideanDistance(t.getTarget(), xy)));
-            if (needsBackup.isPresent()) {
-                System.err.println("Hero " + id + " giving backup");
-                target = needsBackup.get();
-                heroState = State.IDLE;
-                return;
-            }
             //GATHER WILD MANA SAFELY
             if (state.enemyInMyTerritory) {
                 Optional<Monster> closestMonster = state.wanderingMonsters.stream()
