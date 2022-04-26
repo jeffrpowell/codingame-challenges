@@ -30,6 +30,7 @@ public class Main {
     public static void main(String args[]) {
         Scanner in = new Scanner(System.in);
         GameState state = new GameState();
+        HeroCoordinator heroCoordinator = new HeroCoordinator(state);
         int baseX = in.nextInt(); // The corner of the map representing your base
         int baseY = in.nextInt();
         Point2D idlePositionCenter;
@@ -57,18 +58,10 @@ public class Main {
             explorePositionFarWing = EXPLORE_TR_WING;
             explorePositionCloseWing = EXPLORE_BL_WING;
         }
-        state.turn = 0;
-        state.myMana = 0;
-        state.enemyInMyTerritory = false;
         int heroesPerPlayer = in.nextInt(); // Always 3
-        state.heroes = new TreeMap<>();
-        state.enemyHeroes = new TreeMap<>();
-        state.enemiesInMyTerritory = new ArrayList<>();
         
         // game loop
         while (true) {
-            PriorityQueue<Monster> monsters = new PriorityQueue<>();
-            List<Monster> nonThreateningMonsters = new ArrayList<>();
             for (int i = 0; i < 2; i++) {
                 int health = in.nextInt(); // Your base health
                 int mana = in.nextInt(); // Ignore in the first league; Spend ten mana to cast a spell
@@ -94,9 +87,11 @@ public class Main {
                 int threatFor = in.nextInt(); // Given this monster's trajectory, is it a threat to 1=your base, 2=your opponent's base, 0=neither
                 if (type == 0) {
                     if (threatFor == 1) {
-                        monsters.add(new Monster(id, x, y, health, vx, vy, nearBase == 1, shieldLife > 0, state));
+                        state.threateningMonsters.add(new Monster(id, x, y, health, vx, vy, nearBase == 1, shieldLife > 0, state));
                     } else if (threatFor == 0){
-                        nonThreateningMonsters.add(new Monster(id, x, y, health, vx, vy, false, shieldLife > 0, state));
+                        state.wanderingMonsters.add(new Monster(id, x, y, health, vx, vy, false, shieldLife > 0, state));
+                    } else if (threatFor == 2) {
+                        state.helpfulMonsters.add(new Monster(id, x, y, health, vx, vy, nearBase == 1, shieldLife > 0, state));
                     }
                 }
                 else if (type == 1) {
@@ -123,57 +118,10 @@ public class Main {
                     state.enemyHeroes.get(id).updateHero(x, y, shieldLife > 0, distanceToBase <= BASE_RANGE);
                 }
             }
-            state.enemiesInMyTerritory.clear();
             state.enemyHeroes.values().stream().filter(h -> getEuclideanDistance(h.getXy(), state.baseXY) <= getEuclideanDistance(h.getXy(), state.oppositeBaseXY)).forEach(state.enemiesInMyTerritory::add);
             state.enemyInMyTerritory = !state.enemiesInMyTerritory.isEmpty();
-            // In the first league: MOVE <x> <y> | WAIT; In later leagues: | SPELL <spellParams>;
-            List<Monster> monstersByDistance = monsters.stream().collect(Collectors.toList());
-            List<EntityGrouping> chosenTargets = new ArrayList<>();
-            Iterator<Monster> i = monstersByDistance.iterator();
-            EntityGrouping group = null;
-            while (i.hasNext() && chosenTargets.size() < heroesPerPlayer) {
-                Monster next = i.next();
-                System.err.println("Monster " + next.getId() + " is a priority threat. ");
-                if (group == null) {
-                    group = new EntityGrouping(next, state);
-                } else {
-                    boolean grouped = group.tryAddingEntity(next);
-                    if (!grouped) {
-                        System.err.println("It's far enough from the previous group.");
-                        chosenTargets.add(group);
-                        group = new EntityGrouping(next, state);
-                    }
-                    else {
-                        System.err.println("It's near enough to the previous group.");
-                    }
-                    state.enemyHeroes.values().stream().forEach(group::tryAddingEntity);
-                }
-            }
-            if (group != null && chosenTargets.size() < heroesPerPlayer) {
-                chosenTargets.add(group);
-            }
-            if (chosenTargets.size() < heroesPerPlayer) {
-                state.enemiesInMyTerritory.stream()
-                    .sorted(Comparator.comparing(enemy -> getEuclideanDistance(enemy.getXy(), state.baseXY)))
-                    .limit((long)heroesPerPlayer - chosenTargets.size())
-                    .forEach(enemy -> chosenTargets.add(new EntityGrouping(enemy, state)));
-            }
-            for (EntityGrouping target : chosenTargets) {
-                state.heroes.values().stream()
-                    .filter(h -> !h.hasTarget())
-                    .min(Comparator.comparing(h -> getEuclideanDistance(h.getXy(), target.getTarget()))).get()
-                    .targetThisGroup(target, state.myMana);
-            }
-            List<Hero> heroList = state.heroes.values().stream().collect(Collectors.toList());
-            for (int ih = 0; ih < heroesPerPlayer; ih++) {
-                Hero hero = heroList.get(ih);
-                if (!hero.hasTarget()) {
-                    hero.findATarget(heroList, nonThreateningMonsters);
-                }
-                System.out.println(hero.getTarget().printTarget());
-                hero.resetHero();
-            }
-            state.turn++;
+            heroCoordinator.executeMoves();
+            state.endTurn();
         }
     }
 
@@ -186,6 +134,96 @@ public class Main {
         Point2D oppositeBaseXY;
         SortedMap<Integer, Hero> heroes;
         SortedMap<Integer, Hero> enemyHeroes;
+        PriorityQueue<Monster> threateningMonsters;
+        List<Monster> wanderingMonsters;
+        PriorityQueue<Monster> helpfulMonsters;
+        List<EntityGrouping> priorityMonstersToKill;
+
+        public GameState() {
+            this.myMana = 0;
+            this.enemyInMyTerritory = false;
+            this.enemiesInMyTerritory = new ArrayList<>();
+            this.turn = 0;
+            this.baseXY = null;
+            this.oppositeBaseXY = null;
+            this.heroes = new TreeMap<>();
+            this.enemyHeroes = new TreeMap<>();
+            this.threateningMonsters = new PriorityQueue<>();
+            this.wanderingMonsters = new ArrayList<>();
+            this.helpfulMonsters = new PriorityQueue<>();
+            this.priorityMonstersToKill = new ArrayList<>();
+        }
+
+        public void endTurn() {
+            turn++;
+            heroes.values().forEach(Hero::resetHero);
+            threateningMonsters.clear();
+            wanderingMonsters.clear();
+            helpfulMonsters.clear();
+            priorityMonstersToKill.clear();
+            enemiesInMyTerritory.clear();
+            enemyInMyTerritory = false;
+        }
+    }
+
+    private static class HeroCoordinator {
+        GameState state;
+
+        public HeroCoordinator(GameState state) {
+            this.state = state;
+        }
+
+        public void executeMoves() {
+            analyzeBoardAndUpdateState();
+            for (EntityGrouping target : state.priorityMonstersToKill) {
+                state.heroes.values().stream()
+                    .filter(h -> !h.hasTarget())
+                    .min(Comparator.comparing(h -> getEuclideanDistance(h.getXy(), target.getTarget()))).get()
+                    .targetThisGroup(target);
+            }
+            state.heroes.values().stream().forEach(hero -> {
+                if (!hero.hasTarget()) {
+                    hero.findATarget();
+                }
+                System.out.println(hero.getTarget().printTarget());
+            });
+        }
+
+        private void analyzeBoardAndUpdateState() {
+            List<Monster> monstersByDistance = state.threateningMonsters.stream().collect(Collectors.toList());
+            Iterator<Monster> i = monstersByDistance.iterator();
+            EntityGrouping group = null;
+            while (i.hasNext() && state.priorityMonstersToKill.size() < state.heroes.size()) {
+                Monster next = i.next();
+                if (getEuclideanDistance(next.getXy(), state.baseXY) >= getEuclideanDistance(next.getXy(), state.oppositeBaseXY)) {
+                    continue;
+                }
+                System.err.println("Monster " + next.getId() + " is a priority threat. ");
+                if (group == null) {
+                    group = new EntityGrouping(next, state);
+                } else {
+                    boolean grouped = group.tryAddingEntity(next);
+                    if (!grouped) {
+                        System.err.println("It's far enough from the previous group.");
+                        state.priorityMonstersToKill.add(group);
+                        group = new EntityGrouping(next, state);
+                    }
+                    else {
+                        System.err.println("It's near enough to the previous group.");
+                    }
+                    state.enemyHeroes.values().stream().forEach(group::tryAddingEntity);
+                }
+            }
+            if (group != null && state.priorityMonstersToKill.size() < state.heroes.size()) {
+                state.priorityMonstersToKill.add(group);
+            }
+            if (state.priorityMonstersToKill.size() < state.heroes.size()) {
+                state.enemiesInMyTerritory.stream()
+                    .sorted(Comparator.comparing(enemy -> getEuclideanDistance(enemy.getXy(), state.baseXY)))
+                    .limit((long)state.heroes.size() - state.priorityMonstersToKill.size())
+                    .forEach(enemy -> state.priorityMonstersToKill.add(new EntityGrouping(enemy, state)));
+            }
+        }
     }
 
     private abstract static class Entity {
@@ -273,10 +311,10 @@ public class Main {
             return couldUseBackup;
         }
 
-        public void targetThisGroup(EntityGrouping group, int myMana) {
+        public void targetThisGroup(EntityGrouping group) {
             this.hasTarget = true;
             this.couldUseBackup = group.getEntities().size() > 2;
-            if (myMana >= 10 && entityGroupIsTooClose(group) && entityGroupIsUnshielded(group)) {
+            if (state.myMana >= 10 && entityGroupIsTooClose(group) && entityGroupIsUnshielded(group)) {
                 Entity entityClosestToBase = group.getEntityClosestToBase();
                 double distanceToFurthestEntity = getEuclideanDistance(xy, entityClosestToBase.getXy());
                 if (distanceToFurthestEntity <= WindSpell.RANGE) {
@@ -289,8 +327,8 @@ public class Main {
             this.target = group;
         }
 
-        public void findATarget(List<Hero> allHeroes, List<Monster> nonThreateningMonsters) {
-            List<Hero> otherHeroes = allHeroes.stream().filter(h -> h.getId() != this.id).collect(Collectors.toList());
+        public void findATarget() {
+            List<Hero> otherHeroes = state.heroes.values().stream().filter(h -> h.getId() != this.id).collect(Collectors.toList());
             //PROVIDE URGENT BACKUP
             Optional<Target> needsBackup = otherHeroes.stream()
                 .filter(Hero::couldUseBackup)
@@ -304,7 +342,7 @@ public class Main {
             }
             //GATHER WILD MANA SAFELY
             if (state.enemyInMyTerritory) {
-                Optional<Monster> closestMonster = nonThreateningMonsters.stream()
+                Optional<Monster> closestMonster = state.wanderingMonsters.stream()
                     .filter(m -> state.enemiesInMyTerritory.stream().anyMatch(enemy -> getEuclideanDistance(m.getXy(), enemy.getXy()) < (2 * HERO_ATTACK_DISTANCE)))
                     .min(Comparator.comparing(m -> getEuclideanDistance(xy, m.getXy())));
                 if (closestMonster.isPresent() && getEuclideanDistance(closestMonster.get().getXy(), xy) < BASE_RANGE) {
@@ -316,7 +354,7 @@ public class Main {
             }
             //GATHER WILD MANA FREELY
             else {
-                Optional<Monster> closestMonster = nonThreateningMonsters.stream().min(Comparator.comparing(m -> getEuclideanDistance(xy, m.getXy())));
+                Optional<Monster> closestMonster = state.wanderingMonsters.stream().min(Comparator.comparing(m -> getEuclideanDistance(xy, m.getXy())));
                 if (closestMonster.isPresent() && getEuclideanDistance(closestMonster.get().getXy(), xy) < BASE_RANGE) {
                     target = new EntityGrouping(closestMonster.get(), state);
                     System.err.println("Hero " + id + " gathering mana from monster " + closestMonster.get().getId());
@@ -362,6 +400,7 @@ public class Main {
         }
         
     }
+
 
     private static class Monster extends Entity implements Comparable<Monster>, Comparator<Monster>{
         static final int SPEED = 400;
