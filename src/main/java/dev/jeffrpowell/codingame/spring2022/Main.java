@@ -11,56 +11,20 @@ import java.util.Scanner;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.ResourceBundle.Control;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class Main {
-    private static final Point2D MAX_PT = new Point2D.Double(17630, 9000);
-    private static final Point2D MIN_PT = new Point2D.Double(0, 0);
-    private static final Point2D MIN_IDLE_CENTER = new Point2D.Double(10400, 6000);
-    private static final Point2D MIN_IDLE_CLOSE_WING = new Point2D.Double(7000, 800);
-    private static final Point2D MIN_IDLE_FAR_WING = new Point2D.Double(3500, 6000);
-    private static final Point2D EXPLORE_CENTER = new Point2D.Double(8700, 4500);
-    private static final Point2D EXPLORE_TR_WING = new Point2D.Double(11000, 1600);
-    private static final Point2D EXPLORE_BL_WING = new Point2D.Double(6000, 7300);
-    private static final Point2D MAX_IDLE_CENTER = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_CENTER.getX(), MAX_PT.getY() - MIN_IDLE_CENTER.getY());
-    private static final Point2D MAX_IDLE_FAR_WING = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_CLOSE_WING.getX(), MAX_PT.getY() - MIN_IDLE_CLOSE_WING.getY());
-    private static final Point2D MAX_IDLE_CLOSE_WING = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_FAR_WING.getX(), MAX_PT.getY() - MIN_IDLE_FAR_WING.getY());
     private static final int BASE_RANGE = 5000;
-    private static final int HERO_ATTACK_DISTANCE = 800;
 
     public static void main(String args[]) {
         Scanner in = new Scanner(System.in);
-        GameState state = new GameState();
-        HeroCoordinator heroCoordinator = new HeroCoordinator(state);
         int baseX = in.nextInt(); // The corner of the map representing your base
         int baseY = in.nextInt();
-        Point2D idlePositionCenter;
-        Point2D idlePositionFarWing;
-        Point2D idlePositionCloseWing;
-        Point2D explorePositionCenter;
-        Point2D explorePositionFarWing;
-        Point2D explorePositionCloseWing;
-        if (baseX == 0) {
-            state.baseXY = MIN_PT;
-            state.oppositeBaseXY = MAX_PT;
-            idlePositionCenter = MIN_IDLE_CENTER;
-            idlePositionFarWing = MIN_IDLE_FAR_WING;
-            idlePositionCloseWing = MIN_IDLE_CLOSE_WING;
-            explorePositionCenter = EXPLORE_CENTER;
-            explorePositionFarWing = EXPLORE_BL_WING;
-            explorePositionCloseWing = EXPLORE_TR_WING;
-        } else {
-            state.baseXY = MAX_PT;
-            state.oppositeBaseXY = MIN_PT;
-            idlePositionCenter = MAX_IDLE_CENTER;
-            idlePositionFarWing = MAX_IDLE_FAR_WING;
-            idlePositionCloseWing = MAX_IDLE_CLOSE_WING;
-            explorePositionCenter = EXPLORE_CENTER;
-            explorePositionFarWing = EXPLORE_TR_WING;
-            explorePositionCloseWing = EXPLORE_BL_WING;
-        }
         int heroesPerPlayer = in.nextInt(); // Always 3
+        GameState state = new GameState();
+        HeroCoordinator heroCoordinator = new HeroCoordinator(state, baseX);
         
         // game loop
         while (true) {
@@ -95,16 +59,7 @@ public class Main {
                 }
                 else if (type == 1) {
                     if (state.turn == 0){
-                        Point2D idlePt = idlePositionCenter;
-                        Point2D explorePt = explorePositionCenter;
-                        if (id == 1 || id == 4) {
-                            idlePt = idlePositionCloseWing;
-                            explorePt = explorePositionCloseWing;
-                        } else if (id == 2 || id == 5) {
-                            idlePt = idlePositionFarWing;
-                            explorePt = explorePositionFarWing;
-                        }
-                        state.heroes.put(id, new Hero(id, x, y, idlePt, explorePt, shieldLife > 0, getEuclideanDistance(new Point2D.Double(x, y), state.baseXY) <= BASE_RANGE, isControlled == 1, state));
+                        state.heroes.put(id, new Hero(id, x, y, shieldLife > 0, getEuclideanDistance(new Point2D.Double(x, y), state.baseXY) <= BASE_RANGE, isControlled == 1, state));
                     }
                     else {
                         state.heroes.get(id).updateHero(x, y, shieldLife > 0, getEuclideanDistance(new Point2D.Double(x, y), state.baseXY) <= BASE_RANGE, isControlled == 1);
@@ -166,10 +121,61 @@ public class Main {
     }
 
     private static class HeroCoordinator {
+        private static final Point2D MAX_PT = new Point2D.Double(17630, 9000);
+        private static final Point2D MIN_PT = new Point2D.Double(0, 0);
+        private static final Point2D MIN_IDLE_CENTER = new Point2D.Double(6000, 3500);
+        private static final Point2D MIN_IDLE_CLOSE_WING = new Point2D.Double(7000, 800);
+        private static final Point2D MIN_IDLE_FAR_WING = new Point2D.Double(3500, 6000);
+        private static final Point2D MIN_ATTACK_FAR_WING = new Point2D.Double(1500, 4500);
+        private static final Point2D MIN_ATTACK_CLOSE_WING = new Point2D.Double(4500, 1500);
+        private static final Point2D EXPLORE_CENTER = new Point2D.Double(8700, 4500);
+        private static final Point2D EXPLORE_TR_WING = new Point2D.Double(11000, 1600);
+        private static final Point2D EXPLORE_BL_WING = new Point2D.Double(6000, 7300);
+        private static final Point2D MAX_IDLE_CENTER = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_CENTER.getX(), MAX_PT.getY() - MIN_IDLE_CENTER.getY());
+        private static final Point2D MAX_IDLE_FAR_WING = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_CLOSE_WING.getX(), MAX_PT.getY() - MIN_IDLE_CLOSE_WING.getY());
+        private static final Point2D MAX_IDLE_CLOSE_WING = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_FAR_WING.getX(), MAX_PT.getY() - MIN_IDLE_FAR_WING.getY());
+        private static final Point2D MAX_ATTACK_FAR_WING = new Point2D.Double(MAX_PT.getX() - MIN_ATTACK_CLOSE_WING.getX(), MAX_PT.getY() - MIN_ATTACK_CLOSE_WING.getY());
+        private static final Point2D MAX_ATTACK_CLOSE_WING = new Point2D.Double(MAX_PT.getX() - MIN_ATTACK_FAR_WING.getX(), MAX_PT.getY() - MIN_ATTACK_FAR_WING.getY());
+    
         GameState state;
+        Point2D idlePositionCenter;
+        Point2D idlePositionFarWing;
+        Point2D idlePositionCloseWing;
+        Point2D explorePositionCenter;
+        Point2D explorePositionFarWing;
+        Point2D explorePositionCloseWing;
+        Point2D attackFarWing;
+        Point2D attackCloseWing;
 
-        public HeroCoordinator(GameState state) {
+        public HeroCoordinator(GameState state, int baseX) {
             this.state = state;
+            identifyKeyLocations(baseX);
+        }
+
+        private void identifyKeyLocations(int baseX) {
+            if (baseX == 0) {
+                state.baseXY = MIN_PT;
+                state.oppositeBaseXY = MAX_PT;
+                idlePositionCenter = MIN_IDLE_CENTER;
+                idlePositionFarWing = MIN_IDLE_FAR_WING;
+                idlePositionCloseWing = MIN_IDLE_CLOSE_WING;
+                explorePositionCenter = EXPLORE_CENTER;
+                explorePositionFarWing = EXPLORE_BL_WING;
+                explorePositionCloseWing = EXPLORE_TR_WING;
+                attackFarWing = MAX_ATTACK_FAR_WING;
+                attackCloseWing = MAX_ATTACK_CLOSE_WING;
+            } else {
+                state.baseXY = MAX_PT;
+                state.oppositeBaseXY = MIN_PT;
+                idlePositionCenter = MAX_IDLE_CENTER;
+                idlePositionFarWing = MAX_IDLE_FAR_WING;
+                idlePositionCloseWing = MAX_IDLE_CLOSE_WING;
+                explorePositionCenter = EXPLORE_CENTER;
+                explorePositionFarWing = EXPLORE_TR_WING;
+                explorePositionCloseWing = EXPLORE_BL_WING;
+                attackFarWing = MIN_ATTACK_FAR_WING;
+                attackCloseWing = MIN_ATTACK_CLOSE_WING;
+            }
         }
 
         public void executeMoves() {
@@ -226,16 +232,14 @@ public class Main {
         }
 
         private int numberOfAttackers() {
-            if (state.myMana < 100) {
+            if (state.myMana < 40) {
                 return 0;
             }
             switch (state.enemiesInMyTerritory.size()) {
-                case 3:
-                case 2:
-                case 1:
-                    return 1;
+                case 0:
+                    return 2;
                 default:
-                    return 2; 
+                    return 1;
             }
         }
 
@@ -255,6 +259,32 @@ public class Main {
                     .min(Comparator.comparing(h -> getEuclideanDistance(h.getXy(), target.getTarget())))
                     .ifPresent(h -> h.targetThisGroup(target));
             }
+            identifyIdleExplorePts(defenders);
+        }
+
+        private void identifyIdleExplorePts(Set<Hero> defenders) {
+            List<Point2D> idlePts;
+            List<Point2D> explorePts;
+            switch (defenders.size()) {
+                case 1:
+                    idlePts.add(idlePositionCenter);
+                    explorePts.add(explorePositionCenter);
+                    break;
+                case 2:
+                    idlePts.add(idlePositionCloseWing);
+                    idlePts.add(idlePositionFarWing);
+                    explorePts.add(explorePositionCloseWing);
+                    explorePts.add(explorePositionFarWing);
+                    break;
+                case 3:
+                    idlePts.add(idlePositionCloseWing);
+                    idlePts.add(idlePositionFarWing);
+                    idlePts.add(idlePositionCenter);
+                    explorePts.add(explorePositionCloseWing);
+                    explorePts.add(explorePositionFarWing);
+                    explorePts.add(explorePositionCenter);
+                    break;
+            }
             defenders.stream().forEach(hero -> {
                 if (!hero.hasTarget()) {
                     hero.findATargetForDefense();
@@ -263,7 +293,7 @@ public class Main {
         }
 
         private void handleAttackers(Set<Hero> attackers) {
-            attackers.stream().forEach(Hero::findATargetForAttack);
+            attackers.stream().forEach(h -> h.findATargetForAttack(attackFarWing, attackCloseWing));
         }
     }
 
@@ -304,31 +334,15 @@ public class Main {
     }
 
     private static class Hero extends Entity{
+        public static final int ATTACK_DISTANCE = 800;
         enum HeroState {EXPLORE, IDLE, SAVE_DEFENDER}
-        IdlePt idleTarget;
-        IdlePt exploreTarget;
         Target target;
         boolean hasTarget;
         boolean controlled;
         HeroState heroState;
 
-        public Hero(int id, int x, int y, Point2D idleTargetPt, Point2D exploreTargetPt, boolean shielded, boolean insideBase, boolean controlled, GameState state) {
-            super(id, new Point2D.Double(x, y), shielded, insideBase, state);
-            this.idleTarget = new IdlePt(idleTargetPt);
-            this.exploreTarget = new IdlePt(exploreTargetPt);
-            this.target = null;
-            this.hasTarget = false;
-            this.controlled = controlled;
-            this.heroState = HeroState.IDLE;
-        }
-
-        /**
-         * Enemy hero constructor
-         */
         public Hero(int id, int x, int y, boolean shielded, boolean insideBase, boolean controlled, GameState state) {
             super(id, new Point2D.Double(x, y), shielded, insideBase, state);
-            this.idleTarget = null;
-            this.exploreTarget = null;
             this.target = null;
             this.hasTarget = false;
             this.controlled = controlled;
@@ -384,11 +398,11 @@ public class Main {
             this.target = group;
         }
 
-        public void findATargetForDefense() {
+        public void findATargetForDefense(Point2D idlePt, Point2D explorePt) {
             //GATHER WILD MANA SAFELY
             if (state.enemyInMyTerritory) {
                 Optional<Monster> closestMonster = state.wanderingMonsters.stream()
-                    .filter(m -> state.enemiesInMyTerritory.stream().anyMatch(enemy -> distanceToEntity(m) < (2 * HERO_ATTACK_DISTANCE)))
+                    .filter(m -> state.enemiesInMyTerritory.stream().anyMatch(enemy -> distanceToEntity(m) < (2 * Hero.ATTACK_DISTANCE)))
                     .min(Comparator.comparing(this::distanceToEntity));
                 if (closestMonster.isPresent() && distanceToEntity(closestMonster.get()) < BASE_RANGE) {
                     target = new EntityGrouping(closestMonster.get(), state);
@@ -408,21 +422,21 @@ public class Main {
                 }
             }
             //EXPLORE
-            if (heroState == HeroState.EXPLORE && getEuclideanDistance(xy, exploreTarget.getTarget()) > (2 * HERO_ATTACK_DISTANCE)) {
+            if (heroState == HeroState.EXPLORE && getEuclideanDistance(xy, explorePt) > (2 * Hero.ATTACK_DISTANCE)) {
                 debug(heroToString(id) + " not finding anything; exploring now");
-                this.target = exploreTarget;
+                this.target = new IdlePt(explorePt);
             }
-            else if (heroState == HeroState.EXPLORE && getEuclideanDistance(xy, exploreTarget.getTarget()) <= (2 * HERO_ATTACK_DISTANCE)){
+            else if (heroState == HeroState.EXPLORE && getEuclideanDistance(xy, explorePt) <= (2 * Hero.ATTACK_DISTANCE)){
                 heroState = HeroState.IDLE;
             }
             debug(heroToString(id) + " not finding anything; idling now");
-            this.target = idleTarget;
-            if (heroState == HeroState.IDLE && getEuclideanDistance(xy, idleTarget.getTarget()) <= HERO_ATTACK_DISTANCE){
+            this.target = new IdlePt(idlePt);
+            if (heroState == HeroState.IDLE && getEuclideanDistance(xy, idlePt) <= Hero.ATTACK_DISTANCE){
                 heroState = HeroState.EXPLORE;
             }
         }
 
-        public void findATargetForAttack() {
+        public void findATargetForAttack(Point2D sweepFar, Point2D sweepClose) {
             //MONSTER CAN KAMIKAZE
             Optional<Monster> kamikazeMonster = state.helpfulMonsters.stream()
                 .filter(m -> !m.isShielded())
@@ -431,40 +445,47 @@ public class Main {
                 .findFirst();
             if (kamikazeMonster.isPresent()) {
                 this.target = new ShieldSpell(kamikazeMonster.get().getId());
+                heroState = HeroState.IDLE;
                 return;
             }
             //SEND MONSTER ACROSS BOUNDARY
             Optional<Monster> closeMonster = Stream.of(state.helpfulMonsters, state.wanderingMonsters)
                 .flatMap(List::stream)
-                .filter(m -> getEuclideanDistance(m.getXy(), state.oppositeBaseXY) > BASE_RANGE)
+                .filter(m -> {
+                    double dist = getEuclideanDistance(m.getXy(), state.oppositeBaseXY);
+                    return dist > BASE_RANGE && dist < BASE_RANGE + WindSpell.RANGE;
+                })
                 .filter(m -> m.strikesLeft() > 2)
                 .filter(m -> distanceToEntity(m) < WindSpell.RANGE)
                 .findAny();
             if (closeMonster.isPresent()) {
                 this.target = new WindSpell(state.oppositeBaseXY);
+                heroState = HeroState.IDLE;
                 return;
             }
-            //GATHER MANA
-            Optional<Monster> closestMonster = state.wanderingMonsters.stream()
-                .filter(m -> getEuclideanDistance(m.getXy(), state.baseXY) > getEuclideanDistance(m.getXy(), state.oppositeBaseXY))
-                .min(Comparator.comparing(this::distanceToEntity));
-            if (closestMonster.isPresent() && distanceToEntity(closestMonster.get()) < BASE_RANGE) {
-                target = new EntityGrouping(closestMonster.get(), state);
-                debug(heroToString(id) + " gathering mana from monster " + closestMonster.get().getId());
+            //REDIRECT WANDERING MONSTER
+            Optional<Monster> wanderer = state.wanderingMonsters.stream()
+                .filter(m -> distanceToEntity(m) < ControlSpell.RANGE)
+                .findAny();
+            if (wanderer.isPresent()) {
+                Point2D t = Stream.of(sweepFar, sweepClose)
+                    .min(Comparator.comparing(p -> getEuclideanDistance(wanderer.get().getXy(), p)))
+                    .get();
+                this.target = new ControlSpell(wanderer.get().getId(), t);
                 heroState = HeroState.IDLE;
                 return;
             }
             //EXPLORE
-            if (heroState == HeroState.EXPLORE && getEuclideanDistance(xy, exploreTarget.getTarget()) > (2 * HERO_ATTACK_DISTANCE)) {
-                debug(heroToString(id) + " not finding anything; exploring now");
-                this.target = exploreTarget;
+            if (heroState == HeroState.EXPLORE && getEuclideanDistance(xy, sweepFar) > (2 * Hero.ATTACK_DISTANCE)) {
+                debug(heroToString(id) + " not finding anything; sweeping far");
+                this.target = new IdlePt(sweepFar);
             }
-            else if (heroState == HeroState.EXPLORE && getEuclideanDistance(xy, exploreTarget.getTarget()) <= (2 * HERO_ATTACK_DISTANCE)){
+            else if (heroState == HeroState.EXPLORE && getEuclideanDistance(xy, sweepFar) <= (2 * Hero.ATTACK_DISTANCE)){
                 heroState = HeroState.IDLE;
             }
-            debug(heroToString(id) + " not finding anything; idling now");
-            this.target = idleTarget;
-            if (heroState == HeroState.IDLE && getEuclideanDistance(xy, idleTarget.getTarget()) <= HERO_ATTACK_DISTANCE){
+            debug(heroToString(id) + " not finding anything; sweeping close");
+            this.target = new IdlePt(sweepClose);
+            if (heroState == HeroState.IDLE && getEuclideanDistance(xy, sweepClose) <= Hero.ATTACK_DISTANCE){
                 heroState = HeroState.EXPLORE;
             }
         }
@@ -487,12 +508,13 @@ public class Main {
             if (target != null) {
                 return target;
             }
-            debug(heroToString(id) + " unexpectedly lacking a target, going to center");
-            return new IdlePt(EXPLORE_CENTER);
+            debug(heroToString(id) + " unexpectedly lacking a target");
+            return new IdlePt(Stream.of(state.baseXY, state.oppositeBaseXY)
+                .max(Comparator.comparing(p -> getEuclideanDistance(xy, p)))
+                .get());
         }
         
     }
-
 
     private static class Monster extends Entity implements Comparable<Monster>, Comparator<Monster>{
         static final int SPEED = 400;
@@ -660,7 +682,7 @@ public class Main {
             boolean valid = entities.stream()
                 .map(Entity::getXy)
                 .map(xy -> getEuclideanDistance(xy, newCenter))
-                .allMatch(dist -> dist < HERO_ATTACK_DISTANCE);
+                .allMatch(dist -> dist < Hero.ATTACK_DISTANCE);
             if (!valid) {
                 entities.remove(entities.size() - 1);
                 return false;
