@@ -445,7 +445,9 @@ public class Main {
                 return;
             }
             //GATHER MANA
-            Optional<Monster> closestMonster = state.wanderingMonsters.stream().min(Comparator.comparing(this::distanceToEntity));
+            Optional<Monster> closestMonster = state.wanderingMonsters.stream()
+                .filter(m -> getEuclideanDistance(m.getXy(), state.baseXY) > getEuclideanDistance(m.getXy(), state.oppositeBaseXY))
+                .min(Comparator.comparing(this::distanceToEntity));
             if (closestMonster.isPresent() && distanceToEntity(closestMonster.get()) < BASE_RANGE) {
                 target = new EntityGrouping(closestMonster.get(), state);
                 debug(heroToString(id) + " gathering mana from monster " + closestMonster.get().getId());
