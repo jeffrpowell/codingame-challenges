@@ -74,9 +74,6 @@ public class Main {
             for (int i = 0; i < entityCount; i++) {
                 int id = in.nextInt(); // Unique identifier
                 int type = in.nextInt(); // 0=monster, 1=your hero, 2=opponent hero
-                if (type == 0) {
-                    debug("Monster " + id + " is visible");
-                }
                 int x = in.nextInt(); // Position of this entity
                 int y = in.nextInt();
                 int shieldLife = in.nextInt(); // Ignore for this league; Count down until shield spell fades
@@ -169,11 +166,9 @@ public class Main {
 
     private static class HeroCoordinator {
         GameState state;
-        Hero controllerTarget;
 
         public HeroCoordinator(GameState state) {
             this.state = state;
-            this.controllerTarget = null;
         }
 
         public void executeMoves() {
@@ -242,33 +237,29 @@ public class Main {
 
         private void handleDefenders(Set<Hero> defenders) {
             Optional<Hero> controlledHero = defenders.stream().filter(Hero::isControlled).findAny();
-            if (controlledHero.isPresent()) {
-                if (controllerTarget == null) {
-                    controllerTarget = state.enemiesInMyTerritory.stream()
-                        .filter(enemy -> getEuclideanDistance(enemy.getXy(), controlledHero.get().getXy()) <= ControlSpell.RANGE)
-                        .findAny().get();
-                }
-                defenders.stream().forEach(h -> h.setControllerTarget(controllerTarget));
-            }
-            else {
-                controllerTarget = null;
+            if (controlledHero.isPresent() && !controlledHero.get().isShielded()) {
+                defenders.stream()
+                    .filter(h -> h.getId() != controlledHero.get().getId())
+                    .filter(h -> !h.isControlled())
+                    .sorted(Comparator.comparing(h -> h.distanceToEntity(controlledHero.get())))
+                    .limit(1)
+                    .forEach(h -> h.saveControlledDefender(controlledHero.get()));
             }
             for (EntityGrouping target : state.priorityMonstersToKill) {
                 defenders.stream()
-                    .filter(h -> !h.hasTarget())
                     .filter(Hero::canAcceptPriorityTarget)
                     .min(Comparator.comparing(h -> getEuclideanDistance(h.getXy(), target.getTarget())))
                     .ifPresent(h -> h.targetThisGroup(target));
             }
             defenders.stream().forEach(hero -> {
                 if (!hero.hasTarget()) {
-                    hero.findATarget();
+                    hero.findATarget(true);
                 }
             });
         }
 
         private void handleAttackers(Set<Hero> attackers) {
-
+            attackers.stream().forEach(h -> h.findATarget(false));
         }
     }
 
@@ -303,10 +294,13 @@ public class Main {
             return insideBase;
         }
         
+        public double distanceToEntity(Entity e) {
+            return getEuclideanDistance(xy, e.getXy());
+        }
     }
 
     private static class Hero extends Entity{
-        enum HeroState {EXPLORE, IDLE, PUSH_CONTROLLER}
+        enum HeroState {EXPLORE, IDLE, SAVE_DEFENDER}
         IdlePt idleTarget;
         IdlePt exploreTarget;
         Target target;
@@ -344,16 +338,11 @@ public class Main {
             this.controlled = controlled;
         }
         
-        public void setControllerTarget(Hero controllerTarget) {
-            this.heroState = HeroState.PUSH_CONTROLLER;
-            this.hasTarget = true;
-            if (getEuclideanDistance(xy, controllerTarget.getXy()) <= WindSpell.RANGE) {
-                this.target = new WindSpell(state.oppositeBaseXY);
-                heroState = HeroState.IDLE;
-                debug(heroToString(id) + " yells \"Get outta my house!\" at " + controllerTarget.getId());
-            }
-            else {
-                this.target = new IdlePt(controllerTarget.getXy()); //TODO: calculate the point that is WindSpell.RANGE distance away from controller towards state.baseXy
+        public void saveControlledDefender(Hero controlledDefender) {
+            if (distanceToEntity(controlledDefender) < ShieldSpell.RANGE) {
+                debug(heroToString(id) + " is shielding " + heroToString(controlledDefender.getId()));
+                this.target = new ShieldSpell(controlledDefender.getId());
+                this.hasTarget = true;
             }
         }
 
@@ -372,14 +361,15 @@ public class Main {
 
         public boolean canAcceptPriorityTarget() {
             return state.myMana >= 10
-                && heroState != HeroState.PUSH_CONTROLLER;
+                && !controlled
+                && !hasTarget;
         }
 
         public void targetThisGroup(EntityGrouping group) {
             this.hasTarget = true;
             if (state.myMana >= 10 && entityGroupIsTooClose(group) && entityGroupIsUnshielded(group)) {
                 Entity entityClosestToBase = group.getEntityClosestToBase();
-                double distanceToFurthestEntity = getEuclideanDistance(xy, entityClosestToBase.getXy());
+                double distanceToFurthestEntity = distanceToEntity(entityClosestToBase);
                 if (distanceToFurthestEntity <= WindSpell.RANGE) {
                     debug(heroToString(id) + " is too close to home; wind spell");
                     this.target = new WindSpell(state.oppositeBaseXY);
@@ -390,13 +380,13 @@ public class Main {
             this.target = group;
         }
 
-        public void findATarget() {
+        public void findATarget(boolean defender) {
             //GATHER WILD MANA SAFELY
-            if (state.enemyInMyTerritory) {
+            if (defender && state.enemyInMyTerritory) {
                 Optional<Monster> closestMonster = state.wanderingMonsters.stream()
-                    .filter(m -> state.enemiesInMyTerritory.stream().anyMatch(enemy -> getEuclideanDistance(m.getXy(), enemy.getXy()) < (2 * HERO_ATTACK_DISTANCE)))
-                    .min(Comparator.comparing(m -> getEuclideanDistance(xy, m.getXy())));
-                if (closestMonster.isPresent() && getEuclideanDistance(closestMonster.get().getXy(), xy) < BASE_RANGE) {
+                    .filter(m -> state.enemiesInMyTerritory.stream().anyMatch(enemy -> distanceToEntity(m) < (2 * HERO_ATTACK_DISTANCE)))
+                    .min(Comparator.comparing(this::distanceToEntity));
+                if (closestMonster.isPresent() && distanceToEntity(closestMonster.get()) < BASE_RANGE) {
                     target = new EntityGrouping(closestMonster.get(), state);
                     debug(heroToString(id) + " gathering mana from safe monster " + closestMonster.get().getId());
                     heroState = HeroState.IDLE;
@@ -405,8 +395,8 @@ public class Main {
             }
             //GATHER WILD MANA FREELY
             else {
-                Optional<Monster> closestMonster = state.wanderingMonsters.stream().min(Comparator.comparing(m -> getEuclideanDistance(xy, m.getXy())));
-                if (closestMonster.isPresent() && getEuclideanDistance(closestMonster.get().getXy(), xy) < BASE_RANGE) {
+                Optional<Monster> closestMonster = state.wanderingMonsters.stream().min(Comparator.comparing(this::distanceToEntity));
+                if (closestMonster.isPresent() && distanceToEntity(closestMonster.get()) < BASE_RANGE) {
                     target = new EntityGrouping(closestMonster.get(), state);
                     debug(heroToString(id) + " gathering mana from monster " + closestMonster.get().getId());
                     heroState = HeroState.IDLE;
