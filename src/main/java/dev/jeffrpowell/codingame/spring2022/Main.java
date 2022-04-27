@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Scanner;
+import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
@@ -74,7 +75,7 @@ public class Main {
                 int id = in.nextInt(); // Unique identifier
                 int type = in.nextInt(); // 0=monster, 1=your hero, 2=opponent hero
                 if (type == 0) {
-                    System.err.println("Monster " + id + " is visible");
+                    debug("Monster " + id + " is visible");
                 }
                 int x = in.nextInt(); // Position of this entity
                 int y = in.nextInt();
@@ -105,17 +106,17 @@ public class Main {
                             idlePt = idlePositionFarWing;
                             explorePt = explorePositionFarWing;
                         }
-                        state.heroes.put(id, new Hero(id, x, y, idlePt, explorePt, shieldLife > 0, getEuclideanDistance(new Point2D.Double(x, y), state.baseXY) <= BASE_RANGE, state));
+                        state.heroes.put(id, new Hero(id, x, y, idlePt, explorePt, shieldLife > 0, getEuclideanDistance(new Point2D.Double(x, y), state.baseXY) <= BASE_RANGE, isControlled == 1, state));
                     }
                     else {
-                        state.heroes.get(id).updateHero(x, y, shieldLife > 0, getEuclideanDistance(new Point2D.Double(x, y), state.baseXY) <= BASE_RANGE);
+                        state.heroes.get(id).updateHero(x, y, shieldLife > 0, getEuclideanDistance(new Point2D.Double(x, y), state.baseXY) <= BASE_RANGE, isControlled == 1);
                     }
                 }
                 else if (type == 2) {
-                    System.err.println("Hero " + id + " (" + x + " " + y + ") is visible");
+                    debug(heroToString(id) + " (" + x + " " + y + ") is visible");
                     double distanceToBase = getEuclideanDistance(new Point2D.Double(x, y), state.baseXY);
-                    state.enemyHeroes.putIfAbsent(id, new Hero(id, x, y, shieldLife > 0, distanceToBase <= BASE_RANGE, state));
-                    state.enemyHeroes.get(id).updateHero(x, y, shieldLife > 0, distanceToBase <= BASE_RANGE);
+                    state.enemyHeroes.putIfAbsent(id, new Hero(id, x, y, shieldLife > 0, distanceToBase <= BASE_RANGE, isControlled == 1, state));
+                    state.enemyHeroes.get(id).updateHero(x, y, shieldLife > 0, distanceToBase <= BASE_RANGE, isControlled == 1);
                 }
             }
             state.enemyHeroes.values().stream().filter(h -> getEuclideanDistance(h.getXy(), state.baseXY) <= getEuclideanDistance(h.getXy(), state.oppositeBaseXY)).forEach(state.enemiesInMyTerritory::add);
@@ -168,25 +169,28 @@ public class Main {
 
     private static class HeroCoordinator {
         GameState state;
+        Hero controllerTarget;
 
         public HeroCoordinator(GameState state) {
             this.state = state;
+            this.controllerTarget = null;
         }
 
         public void executeMoves() {
             analyzeBoardAndUpdateState();
-            for (EntityGrouping target : state.priorityMonstersToKill) {
-                state.heroes.values().stream()
-                    .filter(h -> !h.hasTarget())
-                    .min(Comparator.comparing(h -> getEuclideanDistance(h.getXy(), target.getTarget()))).get()
-                    .targetThisGroup(target);
-            }
-            state.heroes.values().stream().forEach(hero -> {
-                if (!hero.hasTarget()) {
-                    hero.findATarget();
-                }
-                System.out.println(hero.getTarget().printTarget());
-            });
+            int numAttackers = numberOfAttackers();
+            Set<Hero> attackers = state.heroes.values().stream()
+                .sorted(Comparator.comparing(h -> getEuclideanDistance(h.getXy(), state.oppositeBaseXY)))
+                .limit(numAttackers)
+                .collect(Collectors.toSet());
+            Set<Hero> defenders = state.heroes.values().stream()
+                .filter(h -> !attackers.contains(h))
+                .collect(Collectors.toSet());
+            handleDefenders(defenders);
+            handleAttackers(attackers);
+            state.heroes.values().stream().forEach(hero -> 
+                System.out.println(hero.getTarget().printTarget())
+            );
         }
 
         private void analyzeBoardAndUpdateState() {
@@ -198,18 +202,18 @@ public class Main {
                 if (getEuclideanDistance(next.getXy(), state.baseXY) >= getEuclideanDistance(next.getXy(), state.oppositeBaseXY)) {
                     continue;
                 }
-                System.err.println("Monster " + next.getId() + " is a priority threat. ");
+                debug("Monster " + next.getId() + " is a priority threat. ");
                 if (group == null) {
                     group = new EntityGrouping(next, state);
                 } else {
                     boolean grouped = group.tryAddingEntity(next);
                     if (!grouped) {
-                        System.err.println("It's far enough from the previous group.");
+                        debug("It's far enough from the previous group.");
                         state.priorityMonstersToKill.add(group);
                         group = new EntityGrouping(next, state);
                     }
                     else {
-                        System.err.println("It's near enough to the previous group.");
+                        debug("It's near enough to the previous group.");
                     }
                     state.enemyHeroes.values().stream().forEach(group::tryAddingEntity);
                 }
@@ -223,6 +227,48 @@ public class Main {
                     .limit((long)state.heroes.size() - state.priorityMonstersToKill.size())
                     .forEach(enemy -> state.priorityMonstersToKill.add(new EntityGrouping(enemy, state)));
             }
+        }
+
+        private int numberOfAttackers() {
+            switch (state.enemiesInMyTerritory.size()) {
+                case 3:
+                case 2:
+                case 1:
+                    return 1;
+                default:
+                    return 2; 
+            }
+        }
+
+        private void handleDefenders(Set<Hero> defenders) {
+            Optional<Hero> controlledHero = defenders.stream().filter(Hero::isControlled).findAny();
+            if (controlledHero.isPresent()) {
+                if (controllerTarget == null) {
+                    controllerTarget = state.enemiesInMyTerritory.stream()
+                        .filter(enemy -> getEuclideanDistance(enemy.getXy(), controlledHero.get().getXy()) <= ControlSpell.RANGE)
+                        .findAny().get();
+                }
+                defenders.stream().forEach(h -> h.setControllerTarget(controllerTarget));
+            }
+            else {
+                controllerTarget = null;
+            }
+            for (EntityGrouping target : state.priorityMonstersToKill) {
+                defenders.stream()
+                    .filter(h -> !h.hasTarget())
+                    .filter(Hero::canAcceptPriorityTarget)
+                    .min(Comparator.comparing(h -> getEuclideanDistance(h.getXy(), target.getTarget())))
+                    .ifPresent(h -> h.targetThisGroup(target));
+            }
+            defenders.stream().forEach(hero -> {
+                if (!hero.hasTarget()) {
+                    hero.findATarget();
+                }
+            });
+        }
+
+        private void handleAttackers(Set<Hero> attackers) {
+
         }
     }
 
@@ -260,38 +306,55 @@ public class Main {
     }
 
     private static class Hero extends Entity{
-        enum State {EXPLORE, IDLE, ATTACKING}
+        enum HeroState {EXPLORE, IDLE, PUSH_CONTROLLER}
         IdlePt idleTarget;
         IdlePt exploreTarget;
         Target target;
         boolean hasTarget;
-        State heroState;
+        boolean controlled;
+        HeroState heroState;
 
-        public Hero(int id, int x, int y, Point2D idleTargetPt, Point2D exploreTargetPt, boolean shielded, boolean insideBase, GameState state) {
+        public Hero(int id, int x, int y, Point2D idleTargetPt, Point2D exploreTargetPt, boolean shielded, boolean insideBase, boolean controlled, GameState state) {
             super(id, new Point2D.Double(x, y), shielded, insideBase, state);
             this.idleTarget = new IdlePt(idleTargetPt);
             this.exploreTarget = new IdlePt(exploreTargetPt);
             this.target = null;
             this.hasTarget = false;
-            this.heroState = State.IDLE;
+            this.controlled = controlled;
+            this.heroState = HeroState.IDLE;
         }
 
         /**
          * Enemy hero constructor
          */
-        public Hero(int id, int x, int y, boolean shielded, boolean insideBase, GameState state) {
+        public Hero(int id, int x, int y, boolean shielded, boolean insideBase, boolean controlled, GameState state) {
             super(id, new Point2D.Double(x, y), shielded, insideBase, state);
             this.idleTarget = null;
             this.exploreTarget = null;
             this.target = null;
             this.hasTarget = false;
-            this.heroState = State.IDLE;
+            this.controlled = controlled;
+            this.heroState = HeroState.IDLE;
         }
 
-        public void updateHero(int x, int y, boolean shielded, boolean insideBase) {
+        public void updateHero(int x, int y, boolean shielded, boolean insideBase, boolean controlled) {
             this.xy = new Point2D.Double(x, y);
             this.shielded = shielded;
             this.insideBase = insideBase;
+            this.controlled = controlled;
+        }
+        
+        public void setControllerTarget(Hero controllerTarget) {
+            this.heroState = HeroState.PUSH_CONTROLLER;
+            this.hasTarget = true;
+            if (getEuclideanDistance(xy, controllerTarget.getXy()) <= WindSpell.RANGE) {
+                this.target = new WindSpell(state.oppositeBaseXY);
+                heroState = HeroState.IDLE;
+                debug(heroToString(id) + " yells \"Get outta my house!\" at " + controllerTarget.getId());
+            }
+            else {
+                this.target = new IdlePt(controllerTarget.getXy()); //TODO: calculate the point that is WindSpell.RANGE distance away from controller towards state.baseXy
+            }
         }
 
         public void resetHero() {
@@ -303,18 +366,27 @@ public class Main {
             return hasTarget;
         }
 
+        public boolean isControlled() {
+            return controlled;
+        }
+
+        public boolean canAcceptPriorityTarget() {
+            return state.myMana >= 10
+                && heroState != HeroState.PUSH_CONTROLLER;
+        }
+
         public void targetThisGroup(EntityGrouping group) {
             this.hasTarget = true;
             if (state.myMana >= 10 && entityGroupIsTooClose(group) && entityGroupIsUnshielded(group)) {
                 Entity entityClosestToBase = group.getEntityClosestToBase();
                 double distanceToFurthestEntity = getEuclideanDistance(xy, entityClosestToBase.getXy());
                 if (distanceToFurthestEntity <= WindSpell.RANGE) {
-                    System.err.println("Hero " + id + " is too close to home; wind spell");
+                    debug(heroToString(id) + " is too close to home; wind spell");
                     this.target = new WindSpell(state.oppositeBaseXY);
                     return;
                 }
             }
-            System.err.println("Hero " + id + " is tracking group containing " + group.getEntities().stream().map(Entity::getId).map(i -> i.toString()).collect(Collectors.joining(",")));
+            debug(heroToString(id) + " is tracking group containing " + group.getEntities().stream().map(Entity::getId).map(i -> i.toString()).collect(Collectors.joining(",")));
             this.target = group;
         }
 
@@ -326,8 +398,8 @@ public class Main {
                     .min(Comparator.comparing(m -> getEuclideanDistance(xy, m.getXy())));
                 if (closestMonster.isPresent() && getEuclideanDistance(closestMonster.get().getXy(), xy) < BASE_RANGE) {
                     target = new EntityGrouping(closestMonster.get(), state);
-                    System.err.println("Hero " + id + " gathering mana from safe monster " + closestMonster.get().getId());
-                    heroState = State.IDLE;
+                    debug(heroToString(id) + " gathering mana from safe monster " + closestMonster.get().getId());
+                    heroState = HeroState.IDLE;
                     return;
                 }
             }
@@ -336,23 +408,23 @@ public class Main {
                 Optional<Monster> closestMonster = state.wanderingMonsters.stream().min(Comparator.comparing(m -> getEuclideanDistance(xy, m.getXy())));
                 if (closestMonster.isPresent() && getEuclideanDistance(closestMonster.get().getXy(), xy) < BASE_RANGE) {
                     target = new EntityGrouping(closestMonster.get(), state);
-                    System.err.println("Hero " + id + " gathering mana from monster " + closestMonster.get().getId());
-                    heroState = State.IDLE;
+                    debug(heroToString(id) + " gathering mana from monster " + closestMonster.get().getId());
+                    heroState = HeroState.IDLE;
                     return;
                 }
             }
             //EXPLORE
-            if (heroState == State.EXPLORE && getEuclideanDistance(xy, exploreTarget.getTarget()) > (2 * HERO_ATTACK_DISTANCE)) {
-                System.err.println("Hero " + id + " not finding anything; exploring now");
+            if (heroState == HeroState.EXPLORE && getEuclideanDistance(xy, exploreTarget.getTarget()) > (2 * HERO_ATTACK_DISTANCE)) {
+                debug(heroToString(id) + " not finding anything; exploring now");
                 this.target = exploreTarget;
             }
-            else if (heroState == State.EXPLORE && getEuclideanDistance(xy, exploreTarget.getTarget()) <= (2 * HERO_ATTACK_DISTANCE)){
-                heroState = State.IDLE;
+            else if (heroState == HeroState.EXPLORE && getEuclideanDistance(xy, exploreTarget.getTarget()) <= (2 * HERO_ATTACK_DISTANCE)){
+                heroState = HeroState.IDLE;
             }
-            System.err.println("Hero " + id + " not finding anything; idling now");
+            debug(heroToString(id) + " not finding anything; idling now");
             this.target = idleTarget;
-            if (heroState == State.IDLE && getEuclideanDistance(xy, idleTarget.getTarget()) <= HERO_ATTACK_DISTANCE){
-                heroState = State.EXPLORE;
+            if (heroState == HeroState.IDLE && getEuclideanDistance(xy, idleTarget.getTarget()) <= HERO_ATTACK_DISTANCE){
+                heroState = HeroState.EXPLORE;
             }
         }
 
@@ -374,7 +446,7 @@ public class Main {
             if (target != null) {
                 return target;
             }
-            System.err.println("Hero " + id + " unexpectedly lacking a target, going to center");
+            debug(heroToString(id) + " unexpectedly lacking a target, going to center");
             return new IdlePt(EXPLORE_CENTER);
         }
         
@@ -581,5 +653,13 @@ public class Main {
 
     private static int d2i(Double d) {
         return d.intValue();
+    }
+
+    private static void debug(String message) {
+        System.err.println(message);
+    }
+
+    private static String heroToString(int id) {
+        return "Hero " + id;
     }
 }
