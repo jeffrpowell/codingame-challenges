@@ -12,6 +12,7 @@ import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class Main {
     private static final Point2D MAX_PT = new Point2D.Double(17630, 9000);
@@ -134,7 +135,7 @@ public class Main {
         SortedMap<Integer, Hero> enemyHeroes;
         PriorityQueue<Monster> threateningMonsters;
         List<Monster> wanderingMonsters;
-        PriorityQueue<Monster> helpfulMonsters;
+        List<Monster> helpfulMonsters;
         List<EntityGrouping> priorityMonstersToKill;
 
         public GameState() {
@@ -148,7 +149,7 @@ public class Main {
             this.enemyHeroes = new TreeMap<>();
             this.threateningMonsters = new PriorityQueue<>();
             this.wanderingMonsters = new ArrayList<>();
-            this.helpfulMonsters = new PriorityQueue<>();
+            this.helpfulMonsters = new ArrayList<>();
             this.priorityMonstersToKill = new ArrayList<>();
         }
 
@@ -225,6 +226,9 @@ public class Main {
         }
 
         private int numberOfAttackers() {
+            if (state.myMana < 100) {
+                return 0;
+            }
             switch (state.enemiesInMyTerritory.size()) {
                 case 3:
                 case 2:
@@ -253,13 +257,13 @@ public class Main {
             }
             defenders.stream().forEach(hero -> {
                 if (!hero.hasTarget()) {
-                    hero.findATarget(true);
+                    hero.findATargetForDefense();
                 }
             });
         }
 
         private void handleAttackers(Set<Hero> attackers) {
-            attackers.stream().forEach(h -> h.findATarget(false));
+            attackers.stream().forEach(Hero::findATargetForAttack);
         }
     }
 
@@ -380,9 +384,9 @@ public class Main {
             this.target = group;
         }
 
-        public void findATarget(boolean defender) {
+        public void findATargetForDefense() {
             //GATHER WILD MANA SAFELY
-            if (defender && state.enemyInMyTerritory) {
+            if (state.enemyInMyTerritory) {
                 Optional<Monster> closestMonster = state.wanderingMonsters.stream()
                     .filter(m -> state.enemiesInMyTerritory.stream().anyMatch(enemy -> distanceToEntity(m) < (2 * HERO_ATTACK_DISTANCE)))
                     .min(Comparator.comparing(this::distanceToEntity));
@@ -402,6 +406,51 @@ public class Main {
                     heroState = HeroState.IDLE;
                     return;
                 }
+            }
+            //EXPLORE
+            if (heroState == HeroState.EXPLORE && getEuclideanDistance(xy, exploreTarget.getTarget()) > (2 * HERO_ATTACK_DISTANCE)) {
+                debug(heroToString(id) + " not finding anything; exploring now");
+                this.target = exploreTarget;
+            }
+            else if (heroState == HeroState.EXPLORE && getEuclideanDistance(xy, exploreTarget.getTarget()) <= (2 * HERO_ATTACK_DISTANCE)){
+                heroState = HeroState.IDLE;
+            }
+            debug(heroToString(id) + " not finding anything; idling now");
+            this.target = idleTarget;
+            if (heroState == HeroState.IDLE && getEuclideanDistance(xy, idleTarget.getTarget()) <= HERO_ATTACK_DISTANCE){
+                heroState = HeroState.EXPLORE;
+            }
+        }
+
+        public void findATargetForAttack() {
+            //MONSTER CAN KAMIKAZE
+            Optional<Monster> kamikazeMonster = state.helpfulMonsters.stream()
+                .filter(m -> !m.isShielded())
+                .filter(m -> m.strikesLeft() >= m.turnsLeftToReachBase(state.oppositeBaseXY))
+                .sorted(Comparator.comparing(m -> getEuclideanDistance(m.getXy(), state.oppositeBaseXY)))
+                .findFirst();
+            if (kamikazeMonster.isPresent()) {
+                this.target = new ShieldSpell(kamikazeMonster.get().getId());
+                return;
+            }
+            //SEND MONSTER ACROSS BOUNDARY
+            Optional<Monster> closeMonster = Stream.of(state.helpfulMonsters, state.wanderingMonsters)
+                .flatMap(List::stream)
+                .filter(m -> getEuclideanDistance(m.getXy(), state.oppositeBaseXY) > BASE_RANGE)
+                .filter(m -> m.strikesLeft() > 2)
+                .filter(m -> distanceToEntity(m) < WindSpell.RANGE)
+                .findAny();
+            if (closeMonster.isPresent()) {
+                this.target = new WindSpell(state.oppositeBaseXY);
+                return;
+            }
+            //GATHER MANA
+            Optional<Monster> closestMonster = state.wanderingMonsters.stream().min(Comparator.comparing(this::distanceToEntity));
+            if (closestMonster.isPresent() && distanceToEntity(closestMonster.get()) < BASE_RANGE) {
+                target = new EntityGrouping(closestMonster.get(), state);
+                debug(heroToString(id) + " gathering mana from monster " + closestMonster.get().getId());
+                heroState = HeroState.IDLE;
+                return;
             }
             //EXPLORE
             if (heroState == HeroState.EXPLORE && getEuclideanDistance(xy, exploreTarget.getTarget()) > (2 * HERO_ATTACK_DISTANCE)) {
@@ -471,6 +520,15 @@ public class Main {
 
         public int getHealth() {
             return health;
+        }
+
+        public int strikesLeft() {
+            return health / 2;
+        }
+
+        public int turnsLeftToReachBase(Point2D targetBase) {
+            //TODO: account for ATTACK_DISTANCE
+            return d2i(Math.ceil(getEuclideanDistance(xy, targetBase) / SPEED)); 
         }
 
         public Point2D getReverseDirection() {
