@@ -254,7 +254,7 @@ public class Main {
         }
 
         private int numberOfAttackers() {
-            if (state.turn < 50) {
+            if (state.turn < 50 || !state.enemyInMyTerritory) {
                 return 0;
             }
             else {
