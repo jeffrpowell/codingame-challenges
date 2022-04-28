@@ -18,8 +18,10 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class Main {
-    private static long distanceCalcs = 0;
+    private static final Point2D MAX_PT = new Point2D.Double(17630, 9000);
+    private static final Point2D MIN_PT = new Point2D.Double(0, 0);
     private static final int BASE_RANGE = 5000;
+    private static long distanceCalcs = 0;
 
     public static void main(String args[]) {
         Scanner in = new Scanner(System.in);
@@ -69,7 +71,6 @@ public class Main {
                     }
                 }
                 else if (type == 2) {
-                    debug(heroToString(id) + " (" + x + " " + y + ") is visible");
                     double distanceToBase = getEuclideanDistance(new Point2D.Double(x, y), state.baseXY);
                     state.enemyHeroes.putIfAbsent(id, new Hero(id, x, y, shieldLife > 0, distanceToBase <= BASE_RANGE, isControlled == 1, state));
                     state.enemyHeroes.get(id).updateHero(x, y, shieldLife > 0, distanceToBase <= BASE_RANGE, isControlled == 1);
@@ -95,6 +96,12 @@ public class Main {
         List<Monster> wanderingMonsters;
         List<Monster> helpfulMonsters;
         List<EntityGrouping> priorityMonstersToKill;
+        Point2D attackFarControl;
+        Point2D attackCloseControl;
+        Point2D attackFarPatrol;
+        Point2D attackClosePatrol;
+        Point2D attackFarExplore;
+        Point2D attackCloseExplore;
 
         public GameState() {
             this.myMana = 0;
@@ -109,6 +116,12 @@ public class Main {
             this.wanderingMonsters = new ArrayList<>();
             this.helpfulMonsters = new ArrayList<>();
             this.priorityMonstersToKill = new ArrayList<>();
+            this.attackFarControl = null;
+            this.attackCloseControl = null;
+            this.attackFarPatrol = null;
+            this.attackClosePatrol = null;
+            this.attackFarExplore = null;
+            this.attackCloseExplore = null;
         }
 
         public void endTurn() {
@@ -124,21 +137,27 @@ public class Main {
     }
 
     private static class HeroCoordinator {
-        private static final Point2D MAX_PT = new Point2D.Double(17630, 9000);
-        private static final Point2D MIN_PT = new Point2D.Double(0, 0);
         private static final Point2D MIN_IDLE_CENTER = new Point2D.Double(6000, 3500);
         private static final Point2D MIN_IDLE_CLOSE_WING = new Point2D.Double(7000, 800);
         private static final Point2D MIN_IDLE_FAR_WING = new Point2D.Double(3500, 6000);
-        private static final Point2D MIN_ATTACK_FAR_WING = new Point2D.Double(1500, 4500);
-        private static final Point2D MIN_ATTACK_CLOSE_WING = new Point2D.Double(4800, 900);
+        private static final Point2D MIN_ATTACK_FAR_CONTROL = new Point2D.Double(1500, 4500);
+        private static final Point2D MIN_ATTACK_CLOSE_CONTROL = new Point2D.Double(4800, 900);
+        private static final Point2D MIN_ATTACK_FAR_PATROL = new Point2D.Double(5500, 800);
+        private static final Point2D MIN_ATTACK_CLOSE_PATROL = new Point2D.Double(2300, 5300);
+        private static final Point2D MIN_ATTACK_FAR_EXPLORE = new Point2D.Double(3500, 6700);
+        private static final Point2D MIN_ATTACK_CLOSE_EXPLORE = new Point2D.Double(8000, 2000);
         private static final Point2D EXPLORE_CENTER = new Point2D.Double(8700, 4500);
         private static final Point2D EXPLORE_TR_WING = new Point2D.Double(11000, 1600);
         private static final Point2D EXPLORE_BL_WING = new Point2D.Double(6000, 7300);
         private static final Point2D MAX_IDLE_CENTER = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_CENTER.getX(), MAX_PT.getY() - MIN_IDLE_CENTER.getY());
-        private static final Point2D MAX_IDLE_FAR_WING = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_CLOSE_WING.getX(), MAX_PT.getY() - MIN_IDLE_CLOSE_WING.getY());
-        private static final Point2D MAX_IDLE_CLOSE_WING = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_FAR_WING.getX(), MAX_PT.getY() - MIN_IDLE_FAR_WING.getY());
-        private static final Point2D MAX_ATTACK_FAR_WING = new Point2D.Double(MAX_PT.getX() - MIN_ATTACK_CLOSE_WING.getX(), MAX_PT.getY() - MIN_ATTACK_CLOSE_WING.getY());
-        private static final Point2D MAX_ATTACK_CLOSE_WING = new Point2D.Double(MAX_PT.getX() - MIN_ATTACK_FAR_WING.getX(), MAX_PT.getY() - MIN_ATTACK_FAR_WING.getY());
+        private static final Point2D MAX_IDLE_FAR_WING = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_FAR_WING.getX(), MAX_PT.getY() - MIN_IDLE_FAR_WING.getY());
+        private static final Point2D MAX_IDLE_CLOSE_WING = new Point2D.Double(MAX_PT.getX() - MIN_IDLE_CLOSE_WING.getX(), MAX_PT.getY() - MIN_IDLE_CLOSE_WING.getY());
+        private static final Point2D MAX_ATTACK_FAR_CONTROL = new Point2D.Double(MAX_PT.getX() - MIN_ATTACK_FAR_CONTROL.getX(), MAX_PT.getY() - MIN_ATTACK_FAR_CONTROL.getY());
+        private static final Point2D MAX_ATTACK_CLOSE_CONTROL = new Point2D.Double(MAX_PT.getX() - MIN_ATTACK_CLOSE_CONTROL.getX(), MAX_PT.getY() - MIN_ATTACK_CLOSE_CONTROL.getY());
+        private static final Point2D MAX_ATTACK_FAR_PATROL = new Point2D.Double(MAX_PT.getX() - MIN_ATTACK_FAR_PATROL.getX(), MAX_PT.getY() - MIN_ATTACK_FAR_PATROL.getY());
+        private static final Point2D MAX_ATTACK_CLOSE_PATROL = new Point2D.Double(MAX_PT.getX() - MIN_ATTACK_CLOSE_PATROL.getX(), MAX_PT.getY() - MIN_ATTACK_CLOSE_PATROL.getY());
+        private static final Point2D MAX_ATTACK_FAR_EXPLORE = new Point2D.Double(MAX_PT.getX() - MIN_ATTACK_FAR_EXPLORE.getX(), MAX_PT.getY() - MIN_ATTACK_FAR_EXPLORE.getY());
+        private static final Point2D MAX_ATTACK_CLOSE_EXPLORE = new Point2D.Double(MAX_PT.getX() - MIN_ATTACK_CLOSE_EXPLORE.getX(), MAX_PT.getY() - MIN_ATTACK_CLOSE_EXPLORE.getY());
     
         GameState state;
         Point2D idlePositionCenter;
@@ -147,8 +166,6 @@ public class Main {
         Point2D explorePositionCenter;
         Point2D explorePositionFarWing;
         Point2D explorePositionCloseWing;
-        Point2D attackFarWing;
-        Point2D attackCloseWing;
 
         public HeroCoordinator(GameState state, int baseX) {
             this.state = state;
@@ -165,8 +182,12 @@ public class Main {
                 explorePositionCenter = EXPLORE_CENTER;
                 explorePositionFarWing = EXPLORE_BL_WING;
                 explorePositionCloseWing = EXPLORE_TR_WING;
-                attackFarWing = MAX_ATTACK_FAR_WING;
-                attackCloseWing = MAX_ATTACK_CLOSE_WING;
+                state.attackFarControl = MAX_ATTACK_FAR_CONTROL;
+                state.attackCloseControl = MAX_ATTACK_CLOSE_CONTROL;
+                state.attackFarPatrol = MAX_ATTACK_FAR_PATROL;
+                state.attackClosePatrol = MAX_ATTACK_CLOSE_PATROL;
+                state.attackFarExplore = MAX_ATTACK_FAR_EXPLORE;
+                state.attackCloseExplore = MAX_ATTACK_CLOSE_EXPLORE;
             } else {
                 state.baseXY = MAX_PT;
                 state.oppositeBaseXY = MIN_PT;
@@ -176,8 +197,12 @@ public class Main {
                 explorePositionCenter = EXPLORE_CENTER;
                 explorePositionFarWing = EXPLORE_TR_WING;
                 explorePositionCloseWing = EXPLORE_BL_WING;
-                attackFarWing = MIN_ATTACK_FAR_WING;
-                attackCloseWing = MIN_ATTACK_CLOSE_WING;
+                state.attackFarControl = MIN_ATTACK_FAR_CONTROL;
+                state.attackCloseControl = MIN_ATTACK_CLOSE_CONTROL;
+                state.attackFarPatrol = MIN_ATTACK_FAR_PATROL;
+                state.attackClosePatrol = MIN_ATTACK_CLOSE_PATROL;
+                state.attackFarExplore = MIN_ATTACK_FAR_EXPLORE;
+                state.attackCloseExplore = MIN_ATTACK_CLOSE_EXPLORE;
             }
         }
 
@@ -226,12 +251,6 @@ public class Main {
             if (group != null && state.priorityMonstersToKill.size() < state.heroes.size()) {
                 state.priorityMonstersToKill.add(group);
             }
-            if (state.priorityMonstersToKill.size() < state.heroes.size()) {
-                state.enemiesInMyTerritory.stream()
-                    .sorted(Comparator.comparing(enemy -> enemy.distanceToPt(state.baseXY)))
-                    .limit((long)state.heroes.size() - state.priorityMonstersToKill.size())
-                    .forEach(enemy -> state.priorityMonstersToKill.add(new EntityGrouping(enemy, state)));
-            }
         }
 
         private int numberOfAttackers() {
@@ -253,11 +272,17 @@ public class Main {
                     .limit(1)
                     .forEach(h -> h.saveControlledDefender(controlledHero.get()));
             }
+            int manaLeft = state.myMana;
             for (EntityGrouping target : state.priorityMonstersToKill) {
-                defenders.stream()
+                Optional<Hero> selectedHero = defenders.stream()
                     .filter(Hero::canAcceptPriorityTarget)
-                    .min(Comparator.comparing(h -> h.distanceToPt(target.getTarget())))
-                    .ifPresent(h -> h.targetThisGroup(target));
+                    .min(Comparator.comparing(h -> h.distanceToPt(target.getTarget())));
+                if (selectedHero.isPresent()) {
+                    selectedHero.get().targetThisGroup(target, manaLeft >= 10);
+                    if (selectedHero.get().getTarget() instanceof WindSpell) {
+                        manaLeft -= 10;
+                    }
+                }
             }
             identifyIdleExplorePts(defenders);
         }
@@ -266,16 +291,6 @@ public class Main {
             List<Point2D> idlePts = new ArrayList<>();
             List<Point2D> explorePts = new ArrayList<>();
             switch (defenders.size()) {
-                case 1:
-                    idlePts.add(idlePositionCenter);
-                    explorePts.add(explorePositionCenter);
-                    break;
-                case 2:
-                    idlePts.add(idlePositionCloseWing);
-                    idlePts.add(idlePositionFarWing);
-                    explorePts.add(explorePositionCloseWing);
-                    explorePts.add(explorePositionFarWing);
-                    break;
                 case 3:
                     idlePts.add(idlePositionCloseWing);
                     idlePts.add(idlePositionFarWing);
@@ -284,12 +299,23 @@ public class Main {
                     explorePts.add(explorePositionFarWing);
                     explorePts.add(explorePositionCenter);
                     break;
+                case 2:
+                default:
+                    idlePts.add(idlePositionCloseWing);
+                    idlePts.add(idlePositionFarWing);
+                    explorePts.add(explorePositionCloseWing);
+                    explorePts.add(explorePositionFarWing);
+                    break;
             }
             Set<Point2D> claimedIdlePts = new HashSet<>();
             while(defenders.stream().anyMatch(h -> !h.hasTarget())) {
                 List<Hero> explorers = defenders.stream()
                     .filter(h -> !h.hasTarget)
                     .collect(Collectors.toList());
+                if (state.enemyInMyTerritory) {
+                    explorers.stream().forEach(h -> h.findATargetForDefense(idlePositionCloseWing, idlePositionFarWing));
+                    break;
+                }
                 Map<Point2D, Hero> closestHeroes = idlePts.stream()
                     .filter(pt -> !claimedIdlePts.contains(pt))
                     .collect(Collectors.toMap(
@@ -300,7 +326,7 @@ public class Main {
                     closestHeroes.entrySet().stream()
                         .filter(entry -> entry.getValue().equals(h))
                         .map(Map.Entry::getKey)
-                        .sorted(Comparator.comparing(h::distanceToPt))
+                        .sorted(Comparator.comparing(h::distanceToPt).reversed())
                         .findFirst().ifPresent(idlePt -> {
                             h.findATargetForDefense(idlePt, explorePts.get(idlePts.indexOf(idlePt)));
                             claimedIdlePts.add(idlePt);
@@ -310,7 +336,7 @@ public class Main {
         }
 
         private void handleAttackers(Set<Hero> attackers) {
-            attackers.stream().forEach(h -> h.findATargetForAttack(attackFarWing, attackCloseWing));
+            attackers.stream().forEach(h -> h.findATargetForAttack());
         }
     }
 
@@ -356,11 +382,12 @@ public class Main {
 
     private static class Hero extends Entity{
         public static final int ATTACK_DISTANCE = 800;
-        enum HeroState {EXPLORE, IDLE, SAVE_DEFENDER}
+        enum HeroState {EXPLORE, IDLE, SAVE_DEFENDER, CHECK_ON_MONSTER}
         Target target;
         boolean hasTarget;
         boolean controlled;
         HeroState heroState;
+        Point2D expectedMonsterXY;
 
         public Hero(int id, int x, int y, boolean shielded, boolean insideBase, boolean controlled, GameState state) {
             super(id, new Point2D.Double(x, y), shielded, insideBase, state);
@@ -368,6 +395,7 @@ public class Main {
             this.hasTarget = false;
             this.controlled = controlled;
             this.heroState = HeroState.IDLE;
+            this.expectedMonsterXY = null;
         }
 
         public void updateHero(int x, int y, boolean shielded, boolean insideBase, boolean controlled) {
@@ -402,9 +430,9 @@ public class Main {
             return !controlled && !hasTarget;
         }
 
-        public void targetThisGroup(EntityGrouping group) {
+        public void targetThisGroup(EntityGrouping group, boolean expectedToHaveEnoughMana) {
             this.hasTarget = true;
-            if (state.myMana >= 10 && entityGroupIsTooClose(group) && entityGroupIsUnshielded(group)) {
+            if (expectedToHaveEnoughMana && entityGroupIsTooClose(group) && entityGroupIsUnshielded(group)) {
                 Entity entityClosestToBase = group.getEntityClosestToBase();
                 double distanceToFurthestEntity = distanceToEntity(entityClosestToBase);
                 if (distanceToFurthestEntity <= WindSpell.RANGE) {
@@ -457,8 +485,25 @@ public class Main {
             }
         }
 
-        public void findATargetForAttack(Point2D sweepFar, Point2D sweepClose) {
+        public void findATargetForAttack() {
             this.hasTarget = true;
+            //SPEED UP THE DEATH
+            Optional<Monster> readyMonster = state.helpfulMonsters.stream()
+                .filter(m -> !m.isShielded())
+                .filter(m -> m.distanceToPt(state.oppositeBaseXY) > WindSpell.PUSH - Monster.ATTACK_DISTANCE)
+                .filter(m -> distanceToEntity(m) <= WindSpell.RANGE)
+                .findAny();
+            if (readyMonster.isPresent()) {
+                this.target = new WindSpell(state.oppositeBaseXY);
+                return;
+            }
+            //FINISH THE JOB
+            if (heroState == HeroState.CHECK_ON_MONSTER) {
+                this.target = new IdlePt(expectedMonsterXY);
+                expectedMonsterXY = null;
+                heroState = HeroState.IDLE;
+                return;
+            }
             //MONSTER CAN KAMIKAZE
             Optional<Monster> kamikazeMonster = state.helpfulMonsters.stream()
                 .filter(m -> !m.isShielded())
@@ -467,7 +512,13 @@ public class Main {
                 .findFirst();
             if (kamikazeMonster.isPresent()) {
                 this.target = new ShieldSpell(kamikazeMonster.get().getId());
-                heroState = HeroState.IDLE;
+                if (state.myMana >= 20 && kamikazeMonster.get().distanceToPt(state.oppositeBaseXY) > Monster.SPEED + Monster.ATTACK_DISTANCE) {
+                    heroState = HeroState.CHECK_ON_MONSTER;
+                    expectedMonsterXY = kamikazeMonster.get().getXy();
+                }
+                else {
+                    heroState = HeroState.IDLE;
+                }
                 return;
             }
             //SEND MONSTER ACROSS BOUNDARY
@@ -482,7 +533,13 @@ public class Main {
                 .findAny();
             if (closeMonster.isPresent()) {
                 this.target = new WindSpell(state.oppositeBaseXY);
-                heroState = HeroState.IDLE;
+                if (closeMonster.get().strikesLeft() > 3){
+                    heroState = HeroState.CHECK_ON_MONSTER;
+                    expectedMonsterXY = state.oppositeBaseXY;
+                }
+                else {
+                    heroState = HeroState.IDLE;
+                }
                 return;
             }
             //REDIRECT WANDERING MONSTER
@@ -491,30 +548,54 @@ public class Main {
                 .filter(m -> m.distanceToPt(state.baseXY) >= m.distanceToPt(state.oppositeBaseXY))
                 .findAny();
             if (wanderer.isPresent() && state.myMana > 100) {
-                Point2D t = Stream.of(sweepFar, sweepClose)
+                Point2D t = Stream.of(state.attackCloseControl, state.attackFarControl)
                     .min(Comparator.comparing(p -> wanderer.get().distanceToPt(p)))
                     .get();
                 this.target = new ControlSpell(wanderer.get().getId(), t);
                 heroState = HeroState.IDLE;
                 return;
             }
+            //GATHER WILD MANA
+            if (state.myMana < 50) {
+                Stream<Monster> monsterStream = Stream.concat(state.threateningMonsters.stream(), state.wanderingMonsters.stream());
+                if (state.myMana < 20) {
+                    monsterStream = Stream.concat(monsterStream, state.helpfulMonsters.stream());
+                }
+                Optional<Monster> closestMonster = monsterStream
+                    .filter(m -> m.distanceToPt(state.baseXY) > m.distanceToPt(state.oppositeBaseXY))
+                    .filter(m -> !m.isInsideBase())
+                    .min(Comparator.comparing(this::distanceToEntity));
+                if (closestMonster.isPresent() && distanceToEntity(closestMonster.get()) < BASE_RANGE) {
+                    target = new EntityGrouping(closestMonster.get(), state);
+                    debug(heroToString(id) + " gathering mana from monster " + closestMonster.get().getId());
+                    heroState = HeroState.IDLE;
+                    return;
+                }
+            }
             //EXPLORE
-            boolean baseOnMinSide = Double.compare(state.baseXY.getX(), 0) == 0; 
-            Point2D modifiedSweepFar = baseOnMinSide ? applyVectorToPt(new Point2D.Double(-1000, -1000), sweepFar) : applyVectorToPt(new Point2D.Double(1000, 1000), sweepFar);
-            Point2D modifiedSweepClose = baseOnMinSide ? applyVectorToPt(new Point2D.Double(-1000, -1000), sweepClose) : applyVectorToPt(new Point2D.Double(1000, 1000), sweepClose);
-            if (heroState == HeroState.EXPLORE && distanceToPt(modifiedSweepFar) > (2 * Hero.ATTACK_DISTANCE)) {
+            Point2D sweepFar = chooseFarSweep();
+            if (heroState == HeroState.EXPLORE && distanceToPt(sweepFar) > Hero.ATTACK_DISTANCE) {
                 debug(heroToString(id) + " not finding anything; sweeping far");
-                this.target = new IdlePt(modifiedSweepFar);
+                this.target = new IdlePt(sweepFar);
                 return;
             }
-            else if (heroState == HeroState.EXPLORE && distanceToPt(modifiedSweepFar) <= (2 * Hero.ATTACK_DISTANCE)){
+            else if (heroState == HeroState.EXPLORE && distanceToPt(sweepFar) <= Hero.ATTACK_DISTANCE){
                 heroState = HeroState.IDLE;
             }
             debug(heroToString(id) + " not finding anything; sweeping close");
-            this.target = new IdlePt(modifiedSweepClose);
-            if (heroState == HeroState.IDLE && distanceToPt(modifiedSweepClose) <= Hero.ATTACK_DISTANCE){
+            Point2D sweepClose = chooseCloseSweep();
+            this.target = new IdlePt(sweepClose);
+            if (heroState == HeroState.IDLE && distanceToPt(sweepClose) <= Hero.ATTACK_DISTANCE){
                 heroState = HeroState.EXPLORE;
             }
+        }
+
+        private Point2D chooseFarSweep() {
+            return state.myMana < 50 ? state.attackFarExplore : state.attackFarPatrol;
+        }
+
+        private Point2D chooseCloseSweep() {
+            return state.myMana < 50 ? state.attackCloseExplore : state.attackClosePatrol;
         }
 
         private static boolean entityGroupIsTooClose(EntityGrouping group) {
@@ -540,7 +621,6 @@ public class Main {
                 .max(Comparator.comparing(this::distanceToPt))
                 .get());
         }
-        
     }
 
     private static class Monster extends Entity implements Comparable<Monster>, Comparator<Monster>{
