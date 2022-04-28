@@ -3,19 +3,22 @@ package dev.jeffrpowell.codingame.spring2022;
 import java.awt.geom.Point2D;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Scanner;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
-import java.util.ResourceBundle.Control;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class Main {
+    private static long distanceCalcs = 0;
     private static final int BASE_RANGE = 5000;
 
     public static void main(String args[]) {
@@ -72,7 +75,7 @@ public class Main {
                     state.enemyHeroes.get(id).updateHero(x, y, shieldLife > 0, distanceToBase <= BASE_RANGE, isControlled == 1);
                 }
             }
-            state.enemyHeroes.values().stream().filter(h -> getEuclideanDistance(h.getXy(), state.baseXY) <= getEuclideanDistance(h.getXy(), state.oppositeBaseXY)).forEach(state.enemiesInMyTerritory::add);
+            state.enemyHeroes.values().stream().filter(h -> h.distanceToPt(state.baseXY) <= h.distanceToPt(state.oppositeBaseXY)).forEach(state.enemiesInMyTerritory::add);
             state.enemyInMyTerritory = !state.enemiesInMyTerritory.isEmpty();
             heroCoordinator.executeMoves();
             state.endTurn();
@@ -127,7 +130,7 @@ public class Main {
         private static final Point2D MIN_IDLE_CLOSE_WING = new Point2D.Double(7000, 800);
         private static final Point2D MIN_IDLE_FAR_WING = new Point2D.Double(3500, 6000);
         private static final Point2D MIN_ATTACK_FAR_WING = new Point2D.Double(1500, 4500);
-        private static final Point2D MIN_ATTACK_CLOSE_WING = new Point2D.Double(4500, 1500);
+        private static final Point2D MIN_ATTACK_CLOSE_WING = new Point2D.Double(4800, 900);
         private static final Point2D EXPLORE_CENTER = new Point2D.Double(8700, 4500);
         private static final Point2D EXPLORE_TR_WING = new Point2D.Double(11000, 1600);
         private static final Point2D EXPLORE_BL_WING = new Point2D.Double(6000, 7300);
@@ -182,7 +185,7 @@ public class Main {
             analyzeBoardAndUpdateState();
             int numAttackers = numberOfAttackers();
             Set<Hero> attackers = state.heroes.values().stream()
-                .sorted(Comparator.comparing(h -> getEuclideanDistance(h.getXy(), state.oppositeBaseXY)))
+                .sorted(Comparator.comparing(h -> h.distanceToPt(state.oppositeBaseXY)))
                 .limit(numAttackers)
                 .collect(Collectors.toSet());
             Set<Hero> defenders = state.heroes.values().stream()
@@ -191,7 +194,7 @@ public class Main {
             handleDefenders(defenders);
             handleAttackers(attackers);
             state.heroes.values().stream().forEach(hero -> 
-                System.out.println(hero.getTarget().printTarget())
+                System.out.println(hero.getTarget().printTarget() + (hero.getId() == 0 || hero.getId() == 3 ? " Dist calcs: " + distanceCalcs : ""))
             );
         }
 
@@ -201,7 +204,7 @@ public class Main {
             EntityGrouping group = null;
             while (i.hasNext() && state.priorityMonstersToKill.size() < state.heroes.size()) {
                 Monster next = i.next();
-                if (getEuclideanDistance(next.getXy(), state.baseXY) >= getEuclideanDistance(next.getXy(), state.oppositeBaseXY)) {
+                if (next.distanceToPt(state.baseXY) >= next.distanceToPt(state.oppositeBaseXY)) {
                     continue;
                 }
                 debug("Monster " + next.getId() + " is a priority threat. ");
@@ -225,21 +228,18 @@ public class Main {
             }
             if (state.priorityMonstersToKill.size() < state.heroes.size()) {
                 state.enemiesInMyTerritory.stream()
-                    .sorted(Comparator.comparing(enemy -> getEuclideanDistance(enemy.getXy(), state.baseXY)))
+                    .sorted(Comparator.comparing(enemy -> enemy.distanceToPt(state.baseXY)))
                     .limit((long)state.heroes.size() - state.priorityMonstersToKill.size())
                     .forEach(enemy -> state.priorityMonstersToKill.add(new EntityGrouping(enemy, state)));
             }
         }
 
         private int numberOfAttackers() {
-            if (state.myMana < 40) {
+            if (state.turn < 50) {
                 return 0;
             }
-            switch (state.enemiesInMyTerritory.size()) {
-                case 0:
-                    return 2;
-                default:
-                    return 1;
+            else {
+                return 1;
             }
         }
 
@@ -256,15 +256,15 @@ public class Main {
             for (EntityGrouping target : state.priorityMonstersToKill) {
                 defenders.stream()
                     .filter(Hero::canAcceptPriorityTarget)
-                    .min(Comparator.comparing(h -> getEuclideanDistance(h.getXy(), target.getTarget())))
+                    .min(Comparator.comparing(h -> h.distanceToPt(target.getTarget())))
                     .ifPresent(h -> h.targetThisGroup(target));
             }
             identifyIdleExplorePts(defenders);
         }
 
         private void identifyIdleExplorePts(Set<Hero> defenders) {
-            List<Point2D> idlePts;
-            List<Point2D> explorePts;
+            List<Point2D> idlePts = new ArrayList<>();
+            List<Point2D> explorePts = new ArrayList<>();
             switch (defenders.size()) {
                 case 1:
                     idlePts.add(idlePositionCenter);
@@ -285,11 +285,28 @@ public class Main {
                     explorePts.add(explorePositionCenter);
                     break;
             }
-            defenders.stream().forEach(hero -> {
-                if (!hero.hasTarget()) {
-                    hero.findATargetForDefense();
-                }
-            });
+            Set<Point2D> claimedIdlePts = new HashSet<>();
+            while(defenders.stream().anyMatch(h -> !h.hasTarget())) {
+                List<Hero> explorers = defenders.stream()
+                    .filter(h -> !h.hasTarget)
+                    .collect(Collectors.toList());
+                Map<Point2D, Hero> closestHeroes = idlePts.stream()
+                    .filter(pt -> !claimedIdlePts.contains(pt))
+                    .collect(Collectors.toMap(
+                        Function.identity(),
+                        pt -> explorers.stream().sorted(Comparator.comparing(h -> h.distanceToPt(pt))).findFirst().get()
+                    ));
+                explorers.forEach(h -> {
+                    closestHeroes.entrySet().stream()
+                        .filter(entry -> entry.getValue().equals(h))
+                        .map(Map.Entry::getKey)
+                        .sorted(Comparator.comparing(h::distanceToPt))
+                        .findFirst().ifPresent(idlePt -> {
+                            h.findATargetForDefense(idlePt, explorePts.get(idlePts.indexOf(idlePt)));
+                            claimedIdlePts.add(idlePt);
+                        });
+                });
+            }
         }
 
         private void handleAttackers(Set<Hero> attackers) {
@@ -330,6 +347,10 @@ public class Main {
         
         public double distanceToEntity(Entity e) {
             return getEuclideanDistance(xy, e.getXy());
+        }
+        
+        public double distanceToPt(Point2D pt) {
+            return getEuclideanDistance(xy, pt);
         }
     }
 
@@ -378,9 +399,7 @@ public class Main {
         }
 
         public boolean canAcceptPriorityTarget() {
-            return state.myMana >= 10
-                && !controlled
-                && !hasTarget;
+            return !controlled && !hasTarget;
         }
 
         public void targetThisGroup(EntityGrouping group) {
@@ -399,6 +418,7 @@ public class Main {
         }
 
         public void findATargetForDefense(Point2D idlePt, Point2D explorePt) {
+            this.hasTarget = true;
             //GATHER WILD MANA SAFELY
             if (state.enemyInMyTerritory) {
                 Optional<Monster> closestMonster = state.wanderingMonsters.stream()
@@ -422,26 +442,28 @@ public class Main {
                 }
             }
             //EXPLORE
-            if (heroState == HeroState.EXPLORE && getEuclideanDistance(xy, explorePt) > (2 * Hero.ATTACK_DISTANCE)) {
-                debug(heroToString(id) + " not finding anything; exploring now");
+            if (heroState == HeroState.EXPLORE && distanceToPt(explorePt) > (2 * Hero.ATTACK_DISTANCE)) {
+                debug(heroToString(id) + " not finding anything; exploring now to " + printPt(explorePt));
                 this.target = new IdlePt(explorePt);
+                return;
             }
-            else if (heroState == HeroState.EXPLORE && getEuclideanDistance(xy, explorePt) <= (2 * Hero.ATTACK_DISTANCE)){
+            else if (heroState == HeroState.EXPLORE && distanceToPt(explorePt) <= (2 * Hero.ATTACK_DISTANCE)){
                 heroState = HeroState.IDLE;
             }
-            debug(heroToString(id) + " not finding anything; idling now");
+            debug(heroToString(id) + " not finding anything; idling now to " + printPt(idlePt));
             this.target = new IdlePt(idlePt);
-            if (heroState == HeroState.IDLE && getEuclideanDistance(xy, idlePt) <= Hero.ATTACK_DISTANCE){
+            if (heroState == HeroState.IDLE && distanceToPt(idlePt) <= Hero.ATTACK_DISTANCE){
                 heroState = HeroState.EXPLORE;
             }
         }
 
         public void findATargetForAttack(Point2D sweepFar, Point2D sweepClose) {
+            this.hasTarget = true;
             //MONSTER CAN KAMIKAZE
             Optional<Monster> kamikazeMonster = state.helpfulMonsters.stream()
                 .filter(m -> !m.isShielded())
                 .filter(m -> m.strikesLeft() >= m.turnsLeftToReachBase(state.oppositeBaseXY))
-                .sorted(Comparator.comparing(m -> getEuclideanDistance(m.getXy(), state.oppositeBaseXY)))
+                .sorted(Comparator.comparing(m -> m.distanceToPt(state.oppositeBaseXY)))
                 .findFirst();
             if (kamikazeMonster.isPresent()) {
                 this.target = new ShieldSpell(kamikazeMonster.get().getId());
@@ -452,8 +474,8 @@ public class Main {
             Optional<Monster> closeMonster = Stream.of(state.helpfulMonsters, state.wanderingMonsters)
                 .flatMap(List::stream)
                 .filter(m -> {
-                    double dist = getEuclideanDistance(m.getXy(), state.oppositeBaseXY);
-                    return dist > BASE_RANGE && dist < BASE_RANGE + WindSpell.RANGE;
+                    double dist = m.distanceToPt(state.oppositeBaseXY) - Monster.ATTACK_DISTANCE;
+                    return dist > BASE_RANGE && dist < BASE_RANGE + WindSpell.PUSH;
                 })
                 .filter(m -> m.strikesLeft() > 2)
                 .filter(m -> distanceToEntity(m) < WindSpell.RANGE)
@@ -466,26 +488,31 @@ public class Main {
             //REDIRECT WANDERING MONSTER
             Optional<Monster> wanderer = state.wanderingMonsters.stream()
                 .filter(m -> distanceToEntity(m) < ControlSpell.RANGE)
+                .filter(m -> m.distanceToPt(state.baseXY) >= m.distanceToPt(state.oppositeBaseXY))
                 .findAny();
-            if (wanderer.isPresent()) {
+            if (wanderer.isPresent() && state.myMana > 100) {
                 Point2D t = Stream.of(sweepFar, sweepClose)
-                    .min(Comparator.comparing(p -> getEuclideanDistance(wanderer.get().getXy(), p)))
+                    .min(Comparator.comparing(p -> wanderer.get().distanceToPt(p)))
                     .get();
                 this.target = new ControlSpell(wanderer.get().getId(), t);
                 heroState = HeroState.IDLE;
                 return;
             }
             //EXPLORE
-            if (heroState == HeroState.EXPLORE && getEuclideanDistance(xy, sweepFar) > (2 * Hero.ATTACK_DISTANCE)) {
+            boolean baseOnMinSide = Double.compare(state.baseXY.getX(), 0) == 0; 
+            Point2D modifiedSweepFar = baseOnMinSide ? applyVectorToPt(new Point2D.Double(-1000, -1000), sweepFar) : applyVectorToPt(new Point2D.Double(1000, 1000), sweepFar);
+            Point2D modifiedSweepClose = baseOnMinSide ? applyVectorToPt(new Point2D.Double(-1000, -1000), sweepClose) : applyVectorToPt(new Point2D.Double(1000, 1000), sweepClose);
+            if (heroState == HeroState.EXPLORE && distanceToPt(modifiedSweepFar) > (2 * Hero.ATTACK_DISTANCE)) {
                 debug(heroToString(id) + " not finding anything; sweeping far");
-                this.target = new IdlePt(sweepFar);
+                this.target = new IdlePt(modifiedSweepFar);
+                return;
             }
-            else if (heroState == HeroState.EXPLORE && getEuclideanDistance(xy, sweepFar) <= (2 * Hero.ATTACK_DISTANCE)){
+            else if (heroState == HeroState.EXPLORE && distanceToPt(modifiedSweepFar) <= (2 * Hero.ATTACK_DISTANCE)){
                 heroState = HeroState.IDLE;
             }
             debug(heroToString(id) + " not finding anything; sweeping close");
-            this.target = new IdlePt(sweepClose);
-            if (heroState == HeroState.IDLE && getEuclideanDistance(xy, sweepClose) <= Hero.ATTACK_DISTANCE){
+            this.target = new IdlePt(modifiedSweepClose);
+            if (heroState == HeroState.IDLE && distanceToPt(modifiedSweepClose) <= Hero.ATTACK_DISTANCE){
                 heroState = HeroState.EXPLORE;
             }
         }
@@ -510,7 +537,7 @@ public class Main {
             }
             debug(heroToString(id) + " unexpectedly lacking a target");
             return new IdlePt(Stream.of(state.baseXY, state.oppositeBaseXY)
-                .max(Comparator.comparing(p -> getEuclideanDistance(xy, p)))
+                .max(Comparator.comparing(this::distanceToPt))
                 .get());
         }
         
@@ -520,17 +547,15 @@ public class Main {
         static final int SPEED = 400;
         static final int ATTACK_DISTANCE = 300;
         int health;
-        Point2D reverseDirection;
 
         public Monster(int id, int x, int y, int health, int vx, int vy, boolean insideBase, boolean shielded, GameState state) {
             super(id, new Point2D.Double(x, y), shielded, insideBase, state);
             this.health = health;
-            this.reverseDirection = applyVectorToPt(new Point2D.Double(-vx, -vy), this.xy);
         }
 
         @Override
         public int compare(Monster m1, Monster m2) {
-            int dist = Double.compare(getEuclideanDistance(m1.xy, state.baseXY), getEuclideanDistance(m2.xy, state.baseXY));
+            int dist = Double.compare(m1.distanceToPt(state.baseXY), m2.distanceToPt(state.baseXY));
             if (dist == 0) {
                 return Integer.compare(m1.health, m2.health);
             }
@@ -551,12 +576,7 @@ public class Main {
         }
 
         public int turnsLeftToReachBase(Point2D targetBase) {
-            //TODO: account for ATTACK_DISTANCE
-            return d2i(Math.ceil(getEuclideanDistance(xy, targetBase) / SPEED)); 
-        }
-
-        public Point2D getReverseDirection() {
-            return reverseDirection;
+            return d2i(Math.ceil((distanceToPt(targetBase) - Monster.ATTACK_DISTANCE) / SPEED)); 
         }
 
         @Override
@@ -601,8 +621,8 @@ public class Main {
     }
 
     private static class WindSpell implements Target {
-        public static int RANGE = 1280;
-        public static int PUSH = 2200;
+        public static final int RANGE = 1280;
+        public static final int PUSH = 2200;
         private Point2D direction;
 
         public WindSpell(Point2D direction) {
@@ -621,7 +641,7 @@ public class Main {
     }
 
     private static class ControlSpell implements Target {
-        public static int RANGE = 2200;
+        public static final int RANGE = 2200;
         private int entityId;
         private Point2D direction;
 
@@ -642,8 +662,8 @@ public class Main {
     }
 
     private static class ShieldSpell implements Target {
-        public static int RANGE = 2200;
-        public static int DURATION = 12;
+        public static final int RANGE = 2200;
+        public static final int DURATION = 12;
         private int entityId;
 
         public ShieldSpell(int entityId) {
@@ -680,8 +700,7 @@ public class Main {
                     entities.stream().map(Entity::getXy).map(Point2D::getY).reduce(0D, Double::sum) / entities.size()
             );
             boolean valid = entities.stream()
-                .map(Entity::getXy)
-                .map(xy -> getEuclideanDistance(xy, newCenter))
+                .map(e -> e.distanceToPt(newCenter))
                 .allMatch(dist -> dist < Hero.ATTACK_DISTANCE);
             if (!valid) {
                 entities.remove(entities.size() - 1);
@@ -694,11 +713,11 @@ public class Main {
         }
 
         public Entity getEntityClosestToBase() {
-            return entities.stream().min(Comparator.comparing(m -> getEuclideanDistance(m.getXy(), state.baseXY))).get();
+            return entities.stream().min(Comparator.comparing(m -> m.distanceToPt(state.baseXY))).get();
         }
 
         public Entity getEntityFurthestFromBase() {
-            return entities.stream().max(Comparator.comparing(m -> getEuclideanDistance(m.getXy(), state.baseXY))).get();
+            return entities.stream().max(Comparator.comparing(m -> m.distanceToPt(state.baseXY))).get();
         }
 
         public List<Entity> getEntities() {
@@ -712,6 +731,7 @@ public class Main {
     }
 
     private static double getEuclideanDistance(Point2D pt1, Point2D pt2) {
+        distanceCalcs++;
         return pt1.distance(pt2);
     }
 
