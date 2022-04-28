@@ -489,23 +489,6 @@ public class Main {
 
         public void findATargetForAttack() {
             this.hasTarget = true;
-            //SPEED UP THE DEATH
-            Optional<Monster> readyMonster = state.helpfulMonsters.stream()
-                .filter(m -> !m.isShielded())
-                .filter(m -> m.distanceToPt(state.oppositeBaseXY) > WindSpell.PUSH - Monster.ATTACK_DISTANCE)
-                .filter(m -> distanceToEntity(m) <= WindSpell.RANGE)
-                .findAny();
-            if (readyMonster.isPresent()) {
-                this.target = new WindSpell(state.oppositeBaseXY);
-                if (readyMonster.get().strikesLeft() > 3){
-                    heroState = HeroState.CHECK_ON_MONSTER;
-                    expectedMonsterXY = state.oppositeBaseXY;
-                }
-                else {
-                    heroState = HeroState.IDLE;
-                }
-                return;
-            }
             //FINISH THE JOB
             if (heroState == HeroState.CHECK_ON_MONSTER) {
                 this.target = new IdlePt(expectedMonsterXY);
@@ -530,6 +513,7 @@ public class Main {
             //SEND MONSTER ACROSS BOUNDARY
             Optional<Monster> closeMonster = Stream.of(state.helpfulMonsters, state.wanderingMonsters)
                 .flatMap(List::stream)
+                .filter(m -> !m.isShielded())
                 .filter(m -> {
                     double dist = m.distanceToPt(state.oppositeBaseXY) - Monster.ATTACK_DISTANCE;
                     return dist > BASE_RANGE && dist < BASE_RANGE + WindSpell.PUSH;
@@ -635,7 +619,8 @@ public class Main {
         int health;
 
         public Monster(int id, int x, int y, int health, int vx, int vy, boolean insideBase, boolean shielded, GameState state) {
-            super(id, applyVectorToPt(new Point2D.Double(vx, vy), new Point2D.Double(x, y)), shielded, insideBase, state);
+            // super(id, applyVectorToPt(new Point2D.Double(vx, vy), new Point2D.Double(x, y)), shielded, insideBase, state);
+            super(id, new Point2D.Double(x, y), shielded, insideBase, state);
             this.health = health;
         }
 
