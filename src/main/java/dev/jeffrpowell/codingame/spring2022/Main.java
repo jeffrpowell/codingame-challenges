@@ -274,12 +274,14 @@ public class Main {
             }
             int manaLeft = state.myMana;
             for (EntityGrouping target : state.priorityMonstersToKill) {
-                Optional<Hero> selectedHero = defenders.stream()
+                List<Hero> heroes = defenders.stream()
                     .filter(Hero::canAcceptPriorityTarget)
-                    .min(Comparator.comparing(h -> h.distanceToPt(target.getTarget())));
-                if (selectedHero.isPresent()) {
-                    selectedHero.get().targetThisGroup(target, manaLeft >= 10);
-                    if (selectedHero.get().getTarget() instanceof WindSpell) {
+                    .sorted(Comparator.comparing(h -> h.distanceToPt(target.getTarget())))
+                    .limit(target.heroesNeeded())
+                    .collect(Collectors.toList());
+                for (Hero hero : heroes) {
+                    hero.targetThisGroup(target, manaLeft >= 10);
+                    if (hero.getTarget() instanceof WindSpell) {
                         manaLeft -= 10;
                     }
                 }
@@ -495,6 +497,13 @@ public class Main {
                 .findAny();
             if (readyMonster.isPresent()) {
                 this.target = new WindSpell(state.oppositeBaseXY);
+                if (readyMonster.get().strikesLeft() > 3){
+                    heroState = HeroState.CHECK_ON_MONSTER;
+                    expectedMonsterXY = state.oppositeBaseXY;
+                }
+                else {
+                    heroState = HeroState.IDLE;
+                }
                 return;
             }
             //FINISH THE JOB
@@ -512,12 +521,9 @@ public class Main {
                 .findFirst();
             if (kamikazeMonster.isPresent()) {
                 this.target = new ShieldSpell(kamikazeMonster.get().getId());
-                if (state.myMana >= 20 && kamikazeMonster.get().distanceToPt(state.oppositeBaseXY) > Monster.SPEED + Monster.ATTACK_DISTANCE) {
+                if (kamikazeMonster.get().distanceToPt(state.oppositeBaseXY) > Monster.SPEED + Monster.ATTACK_DISTANCE) {
                     heroState = HeroState.CHECK_ON_MONSTER;
                     expectedMonsterXY = kamikazeMonster.get().getXy();
-                }
-                else {
-                    heroState = HeroState.IDLE;
                 }
                 return;
             }
@@ -629,7 +635,7 @@ public class Main {
         int health;
 
         public Monster(int id, int x, int y, int health, int vx, int vy, boolean insideBase, boolean shielded, GameState state) {
-            super(id, new Point2D.Double(x, y), shielded, insideBase, state);
+            super(id, applyVectorToPt(new Point2D.Double(vx, vy), new Point2D.Double(x, y)), shielded, insideBase, state);
             this.health = health;
         }
 
@@ -791,6 +797,17 @@ public class Main {
             }
 
         }
+
+        public int heroesNeeded() {
+            return entities.stream()
+                .filter(e -> e instanceof Monster)
+                .map(e -> (Monster) e)
+                .anyMatch(this::kamikazeMonster) ? 2 : 1;
+        }
+
+        private boolean kamikazeMonster(Monster m) {
+            return m.isShielded() && m.strikesLeft() >= m.turnsLeftToReachBase(state.baseXY);
+        } 
 
         public Entity getEntityClosestToBase() {
             return entities.stream().min(Comparator.comparing(m -> m.distanceToPt(state.baseXY))).get();
