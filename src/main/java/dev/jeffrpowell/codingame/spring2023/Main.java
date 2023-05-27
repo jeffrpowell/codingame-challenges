@@ -1,6 +1,8 @@
 package dev.jeffrpowell.codingame.spring2023;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,7 +56,33 @@ public class Main {
         }
     }
 
-    private static record HexIndices(Map<Point3D, Hex> ptToHexMap, Map<Integer, Hex> idToHexMap){}
+    private static class HexIndices{
+        Map<Point3D, Hex> ptToHexMap;
+        Map<Integer, Hex> idToHexMap;
+
+        public HexIndices(Map<Point3D, Hex> ptToHexMap, Map<Integer, Hex> idToHexMap) {
+            this.ptToHexMap = ptToHexMap;
+            this.idToHexMap = idToHexMap;
+        }
+
+        public void putHex(Point3D pt, Hex h) {
+            idToHexMap.put(h.id, h);
+            ptToHexMap.put(pt, h);
+        }
+
+        public void putHex(int id, Hex h) {
+            idToHexMap.put(id, h);
+            ptToHexMap.put(h.pt, h);
+        }
+
+        public Hex getHex(Point3D pt) {
+            return ptToHexMap.get(pt);
+        }
+
+        public Hex getHex(int id) {
+            return idToHexMap.get(id);
+        }
+    }
     private static HexIndices generateHexGrid(Scanner in, int numberOfCells) {
         Map<Integer, HexBuilder> hexBuilderMap = new HashMap<>();
         for (int i = 0; i < numberOfCells; i++) {
@@ -120,12 +148,24 @@ public class Main {
             for (int i = 0; i < neighbor.length; i++) {
                 if (neighborPts.get(i) == null) {
                     switch (i) {
-                        case 0 -> neighborPts.set(i, getPtFromNeighborPt(pt, 3));
-                        case 1 -> neighborPts.set(i, getPtFromNeighborPt(pt, 4));
-                        case 2 -> neighborPts.set(i, getPtFromNeighborPt(pt, 5));
-                        case 3 -> neighborPts.set(i, getPtFromNeighborPt(pt, 0));
-                        case 4 -> neighborPts.set(i, getPtFromNeighborPt(pt, 1));
-                        default -> neighborPts.set(i, getPtFromNeighborPt(pt, 2));
+                        case 0:
+                            neighborPts.set(i, getPtFromNeighborPt(pt, 3));
+                            break;
+                        case 1:
+                            neighborPts.set(i, getPtFromNeighborPt(pt, 4));
+                            break;
+                        case 2:
+                            neighborPts.set(i, getPtFromNeighborPt(pt, 5));
+                            break;
+                        case 3:
+                            neighborPts.set(i, getPtFromNeighborPt(pt, 0));
+                            break;
+                        case 4:
+                            neighborPts.set(i, getPtFromNeighborPt(pt, 1));
+                            break;
+                        default:
+                            neighborPts.set(i, getPtFromNeighborPt(pt, 2));
+                            break;
                     }
                 }
                 if (neighbor[i] != -1) {
@@ -135,45 +175,128 @@ public class Main {
         }
 
         private Point3D getPtFromNeighborPt(Point3D neighbor, int neighborRelativePositionIndex) {
-            return switch (neighborRelativePositionIndex) {
-                case 0 -> neighbor.add(-1, 0, 1);
-                case 1 -> neighbor.add(-1, 1, 0);
-                case 2 -> neighbor.add(0, 1, -1);
-                case 3 -> neighbor.add(1, 0, -1);
-                case 4 -> neighbor.add(1, -1, 0);
-                default -> neighbor.add(0, -1, 1);
-            };
+            switch (neighborRelativePositionIndex) {
+                case 0:
+                    return neighbor.add(-1, 0, 1);
+                case 1:
+                    return neighbor.add(-1, 1, 0);
+                case 2:
+                    return neighbor.add(0, 1, -1);
+                case 3:
+                    return neighbor.add(1, 0, -1);
+                case 4:
+                    return neighbor.add(1, -1, 0);
+                default:
+                    return neighbor.add(0, -1, 1);
+            }
         }
     }
 
-    private static record Hex(int id, Point3D pt, int type, int resources){}
+    public static class Hex{
+        int id;
+        Point3D pt;
+        int type;
+        int resources;
+        public Hex(int id, Point3D pt, int type, int resources) {
+            this.id = id;
+            this.pt = pt;
+            this.type = type;
+            this.resources = resources;
+        }
+        
+        public int id() {
+            return this.id;
+        }
+    }
 
     private static class Game{
         private final int numCells;
         private final List<Point3D> bases;
         private final List<Point3D> enemyBases;
         private final HexIndices indices;
+        private List<Integer> crystalSpots;
 
         public Game(int numCells, List<Point3D> bases, List<Point3D> enemyBases, HexIndices indices) {
             this.numCells = numCells;
             this.bases = bases;
             this.enemyBases = enemyBases;
             this.indices = indices;
+            this.crystalSpots = indices.idToHexMap.values().stream().filter(h -> h.type == 2).map(Hex::id).collect(Collectors.toList());
         }
         
         public String gameLoop(Scanner in) {
+            for (Integer id : crystalSpots) {
+                Hex h = indices.getHex(id);
+                indices.putHex(id, new Hex(h.id, h.pt, h.type, 0));
+            }
             for (int i = 0; i < numCells; i++) {
                 int resources = in.nextInt(); // the current amount of eggs/crystals on this cell
+                if (resources > 0) {
+                    Hex h = indices.getHex(i);
+                    if (h.resources != resources) {
+                        indices.putHex(i, new Hex(h.id, h.pt, h.type, resources));
+                    }
+                }
                 int myAnts = in.nextInt(); // the amount of your ants on this cell
                 int oppAnts = in.nextInt(); // the amount of opponent ants on this cell
             }
+            List<Line> lines = decideLines();
+            if (lines.isEmpty()) {
+                return "WAIT";
+            }
+            return lines.stream().map(b -> "LINE "+b.baseId+" "+b.targetId+" "+b.strength).collect(Collectors.joining(";"));
+        }
+        
+        private static class Line{
+            int baseId;
+            int targetId;
+            int strength;
+            public Line(int baseId, int targetId, int strength) {
+                this.baseId = baseId;
+                this.targetId = targetId;
+                this.strength = strength;
+            }
+            
+        }
 
-            // Write an action using System.out.println()
-            // To debug: System.err.println("Debug messages...");
+        private static class ContentionScore{
+            ClosestBase closestBase;
+            int score;
+            public ContentionScore(ClosestBase closestBase, int score) {
+                this.closestBase = closestBase;
+                this.score = score;
+            }
+            
+        }
+        // WAIT | LINE <sourceIdx> <targetIdx> <strength> | BEACON <cellIdx> <strength> | MESSAGE <text>
+        private List<Line> decideLines() {
+            Map<Integer, ContentionScore> contentionScores = new HashMap<>();
+            for (Integer id : crystalSpots) {
+                ClosestBase closestOpponent = calcDistanceFromBasesToPt(enemyBases, indices.getHex(id).pt);
+                ClosestBase closestBase = calcDistanceFromBasesToPt(bases, indices.getHex(id).pt);
+                int score = Math.abs(closestOpponent.distance - closestBase.distance) - indices.getHex(id).resources;
+                contentionScores.put(id, new ContentionScore(closestBase, score));
+            }
+            Map.Entry<Integer, ContentionScore> bestPick = contentionScores.entrySet().stream()
+                .min(Comparator.comparing(entry -> entry.getValue().score)).get();
+            return Collections.singletonList(new Line(
+                indices.getHex(bestPick.getValue().closestBase.base).id,
+                bestPick.getKey(),
+                1
+            ));
+        }
 
-
-            // WAIT | LINE <sourceIdx> <targetIdx> <strength> | BEACON <cellIdx> <strength> | MESSAGE <text>
-            return "WAIT";
+        private static class ClosestBase{
+            Point3D base;
+            int distance;
+            public ClosestBase(Point3D base, int distance) {
+                this.base = base;
+                this.distance = distance;
+            }
+            
+        }
+        private static ClosestBase calcDistanceFromBasesToPt(List<Point3D> baseList, Point3D target) {
+            return new ClosestBase(null, -1);
         }
     }
 }
