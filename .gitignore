@@ -7,3 +7,4 @@ nb-configuration.xml
 # flattened poms #
 .flattened-pom.xml
 /report-data-ws/nbproject/
+.vscode
