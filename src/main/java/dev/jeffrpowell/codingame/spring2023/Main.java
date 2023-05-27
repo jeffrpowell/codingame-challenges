@@ -4,9 +4,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.PriorityQueue;
 import java.util.Scanner;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -207,6 +210,9 @@ public class Main {
         public int id() {
             return this.id;
         }
+        public Point3D pt() {
+            return this.pt;
+        }
     }
 
     private static class Game{
@@ -215,6 +221,7 @@ public class Main {
         private final List<Point3D> enemyBases;
         private final HexIndices indices;
         private List<Integer> crystalSpots;
+        private boolean earlyGame;
 
         public Game(int numCells, List<Point3D> bases, List<Point3D> enemyBases, HexIndices indices) {
             this.numCells = numCells;
@@ -222,6 +229,7 @@ public class Main {
             this.enemyBases = enemyBases;
             this.indices = indices;
             this.crystalSpots = indices.idToHexMap.values().stream().filter(h -> h.type == 2).map(Hex::id).collect(Collectors.toList());
+            this.earlyGame = true;
         }
         
         public String gameLoop(Scanner in) {
@@ -229,12 +237,14 @@ public class Main {
                 Hex h = indices.getHex(id);
                 indices.putHex(id, new Hex(h.id, h.pt, h.type, 0));
             }
+            crystalSpots.clear();
             for (int i = 0; i < numCells; i++) {
                 int resources = in.nextInt(); // the current amount of eggs/crystals on this cell
                 if (resources > 0) {
                     Hex h = indices.getHex(i);
                     if (h.resources != resources) {
                         indices.putHex(i, new Hex(h.id, h.pt, h.type, resources));
+                        crystalSpots.add(h.id);
                     }
                 }
                 int myAnts = in.nextInt(); // the amount of your ants on this cell
@@ -270,20 +280,53 @@ public class Main {
         }
         // WAIT | LINE <sourceIdx> <targetIdx> <strength> | BEACON <cellIdx> <strength> | MESSAGE <text>
         private List<Line> decideLines() {
+            if (earlyGame) {
+                return earlyGameLines();
+            }
+            return lateGameLines();
+        }
+
+        private List<Line> earlyGameLines() {
             Map<Integer, ContentionScore> contentionScores = new HashMap<>();
             for (Integer id : crystalSpots) {
                 ClosestBase closestOpponent = calcDistanceFromBasesToPt(enemyBases, indices.getHex(id).pt);
                 ClosestBase closestBase = calcDistanceFromBasesToPt(bases, indices.getHex(id).pt);
-                int score = Math.abs(closestOpponent.distance - closestBase.distance) - indices.getHex(id).resources;
+                int score = Math.abs(closestOpponent.distance - closestBase.distance);
                 contentionScores.put(id, new ContentionScore(closestBase, score));
             }
             Map.Entry<Integer, ContentionScore> bestPick = contentionScores.entrySet().stream()
                 .min(Comparator.comparing(entry -> entry.getValue().score)).get();
+            if (bestPick.getValue().score > 5) {
+                earlyGame = false;
+                return lateGameLines();
+            }
             return Collections.singletonList(new Line(
                 indices.getHex(bestPick.getValue().closestBase.base).id,
                 bestPick.getKey(),
                 1
             ));
+        }
+
+        private List<Line> lateGameLines() {
+            List<Line> lines = new ArrayList<>();
+            ClosestBase closestOpponentResource = new ClosestBase(null, Integer.MAX_VALUE);
+            int closestOpponentResourceId = -1;
+            for (Integer id : crystalSpots) {
+                ClosestBase closestOpponent = calcDistanceFromBasesToPt(enemyBases, indices.getHex(id).pt);
+                ClosestBase closestBase = calcDistanceFromBasesToPt(bases, indices.getHex(id).pt);
+                if (closestBase.distance <= closestOpponent.distance) {
+                    lines.add(new Line(indices.getHex(closestBase.base).id, id, 1));
+                }
+                else if (closestBase.distance < closestOpponentResource.distance) {
+                    closestOpponentResource = closestBase;
+                    closestOpponentResourceId = id;
+                }
+            }
+            if (lines.isEmpty()) {
+                //Strange end-game situation where we need to extend into enemy territory
+                lines.add(new Line(indices.getHex(closestOpponentResource.base).id, closestOpponentResourceId, 1));
+            }
+            return lines;
         }
 
         private static class ClosestBase{
@@ -295,8 +338,62 @@ public class Main {
             }
             
         }
-        private static ClosestBase calcDistanceFromBasesToPt(List<Point3D> baseList, Point3D target) {
-            return new ClosestBase(null, -1);
+        private ClosestBase calcDistanceFromBasesToPt(List<Point3D> baseList, Point3D target) {
+            ClosestBase closest = new ClosestBase(null, Integer.MAX_VALUE);
+            for (Point3D base : baseList) {
+                int distance = calcDistanceFromBaseToPt(base, target);
+                if (distance < closest.distance) {
+                    closest = new ClosestBase(base, distance);
+                }
+            }
+            return closest;
+        }
+
+        private static class SearchNode {
+            Point3D pt;
+            int distance;
+            
+            public SearchNode(Point3D pt, int distance) {
+                this.pt = pt;
+                this.distance = distance;
+            }
+
+            public double heuristic(Point3D target) {
+                return distance + pt.distance(target);
+            }
+        }
+        private int calcDistanceFromBaseToPt(Point3D base, Point3D target) {
+            PriorityQueue<SearchNode> q = new PriorityQueue<>(Comparator.comparingDouble(s -> s.heuristic(target)));
+            Set<Point3D> visited = new HashSet<>();
+            q.add(new SearchNode(base, 0));
+            while (!q.isEmpty()) {
+                SearchNode n = q.poll();
+                if (n.pt.equals(target)) {
+                    return n.distance;
+                }
+                if (!visited.add(n.pt)) {
+                    continue;
+                }
+                validNeighbors(n.pt).stream()
+                    .map(p -> new SearchNode(p, n.distance + 1))
+                    .forEach(q::add);
+            }
+            return -1;
+        }
+        private List<Point3D> validNeighbors(Point3D pt) {
+            return Stream.of(
+                pt.add(1, 0, -1),
+                pt.add(1, -1, 0),
+                pt.add(0, -1, 1),
+                pt.add(-1, 0, 1),
+                pt.add(-1, 1, 0),
+                pt.add(0, 1, -1)
+            )
+            .filter(indices.ptToHexMap::containsKey)
+            .map(indices::getHex)
+            .filter(h -> h.type != -1)
+            .map(Hex::pt)
+            .collect(Collectors.toList());
         }
     }
 }
