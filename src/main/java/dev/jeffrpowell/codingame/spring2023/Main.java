@@ -18,16 +18,15 @@ import javafx.geometry.Point3D;
 /**
  * Notes on the hexagonal coordinate system of this game and my implementation
  * 
- * The game server generates the map by placing cell-0 in the center and then generating the rest of the map following a half-spiral pattern.
  * The game uses pointy-corner-up orientation for the hexagon orientation.
  * Any time the game rotates around, it always starts in the hex to the right, followed by a counterclockwise rotation.
- * The game places all the hexes with distance = 1 first, then distance = 2, etc. Always following the rotation pattern mentioned above ^.
- * Each time the game decides to place a hex in the grid, it assigns the next monotonically increasing hex id to it.
+ * The game considers all the hexes with distance = 0 from the center, then distance = 1, then distance = 2, etc. Always following the rotation pattern mentioned above ^.
+ * Each time the game decides to place a hex in the grid, it assigns the next monotonically increasing hex id to it, starting with id 0.
  * Once a hex is placed, the next hex to be placed MUST be the hex that is mirror-imaged over the center from the last hex that was placed.
  * After placing the mirror-image hex, the rotation and deciding logic proceeds from the originally placed hex. A couple examples:
- *    5     3            3    -1
- * 2     0     1      2     0     1
- *    4     6           -1     4
+ *    5     3            2    -1
+ * 2     0     1      1    -1     0
+ *    4     6           -1     3
  * The game feeds you the hex grid in ascending hex-id order. This means that you'll receive them in ascending distance-from-0 order too.
  * Furthermore, when you receive a hex, you receive its neighbor hexes in the same rotation pattern described above ^.
  * Given this, you can easily make an id-to-cube-coordinate mapping as you iteratively receive the hexes at the start.
@@ -106,6 +105,13 @@ public class Main {
         for (int i = 0; i < numberOfCells; i++) {
             hexBuilderMap.get(i).setPts(hexBuilderMap);
         }
+        if (hexBuilderMap.get(1).needsNeighborPtsStill()) {
+            //edge case where hex 0 was not in the center and thus separated from hex 1
+            //one more pump should do the trick
+            for (int i = 0; i < numberOfCells; i++) {
+                hexBuilderMap.get(i).setPts(hexBuilderMap);
+            }
+        }
         Map<Point3D, Hex> ptToHexMap = new HashMap<>();
         Map<Integer, Hex> idToHexMap = new HashMap<>();
         for (HexBuilder builder : hexBuilderMap.values()) {
@@ -139,6 +145,10 @@ public class Main {
             this.pt = null;
         }
 
+        public boolean needsNeighborPtsStill() {
+            return neighborPts.stream().anyMatch(pt -> pt == null);
+        }
+
         public void setPts(Map<Integer, HexBuilder> hexBuilderMap) {
             for (int i = 0; i < neighbor.length; i++) {
                 if (hexBuilderMap.containsKey(neighbor[i]) && hexBuilderMap.get(neighbor[i]).pt != null) {
@@ -147,6 +157,9 @@ public class Main {
                         pt = getPtFromNeighborPt(hexBuilderMap.get(neighbor[i]).pt, i);
                     }
                 }
+            }
+            if (pt == null) {
+                return;
             }
             for (int i = 0; i < neighbor.length; i++) {
                 if (neighborPts.get(i) == null) {
@@ -296,7 +309,7 @@ public class Main {
             }
             Map.Entry<Integer, ContentionScore> bestPick = contentionScores.entrySet().stream()
                 .min(Comparator.comparing(entry -> entry.getValue().score)).get();
-            if (bestPick.getValue().score > 5) {
+            if (bestPick.getValue().score > 4) {
                 earlyGame = false;
                 return lateGameLines();
             }
