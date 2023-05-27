@@ -34,6 +34,17 @@ import javafx.geometry.Point3D;
  *     -r+s   +q-r   
  * -q+s     0     +q-s
  *     -q+r   +r-s   
+ * 
+ * STRATEGY & OPTIMIZATION TODOS
+ * - Need to get out of the business of using line commands and instead calculate the individual beacons
+ * - ^ still need to keep the concept of a line so we can stretch the line, calculate minimum shift, and drop the line over multiple resources
+ * - Idea to try: when you hatch more ants, use one turn to set a single beacon on the target
+ * - When there are multiple paths to a target, pick the one that is closest to other resources
+ * - Make sure I don't target a resource that is further away than I have number of ants (maybe even x2?)
+ * - How do we deal with an egg resource that's in the way of a crystal I want? It acts like soul sand to my line.
+ * - (Hard mode) When is the right time to exit egg-harvesting early? Is it better to do one egg at a time?
+ * - ^ Likely a function of when you have enough ants to have a 5x line to 80% of the crystals
+ * - Take into account what my win-condition score is and leverage it to take shortcuts to closer crystals
  */
 public class Main {
     public static void main(String args[]) {
