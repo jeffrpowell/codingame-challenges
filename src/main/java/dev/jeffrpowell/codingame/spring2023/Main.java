@@ -2,7 +2,6 @@ package dev.jeffrpowell.codingame.spring2023;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -37,14 +36,9 @@ import javafx.geometry.Point3D;
  *     -q+r   +r-s   
  * 
  * STRATEGY & OPTIMIZATION TODOS
- * - Need to get out of the business of using line commands and instead calculate the individual beacons
- * - ^ still need to keep the concept of a line so we can stretch the line, calculate minimum shift, and drop the line over multiple resources
- * - Idea to try: when you hatch more ants, use one turn to set a single beacon on the target
+ * - Need to calculate min-span tree to create more of a highway network than a mass flood to reach all the resources
  * - When there are multiple paths to a target, pick the one that is closest to other resources
  * - Make sure I don't target a resource that is further away than I have number of ants (maybe even x2?)
- * - How do we deal with an egg resource that's in the way of a crystal I want? It acts like soul sand to my line.
- * - (Hard mode) When is the right time to exit egg-harvesting early? Is it better to do one egg at a time?
- * - ^ Likely a function of when you have enough ants to have a 5x line to 80% of the crystals
  * - Take into account what my win-condition score is and leverage it to take shortcuts to closer crystals
  */
 public class Main {
@@ -261,6 +255,8 @@ public class Main {
         private int enemyAnts;
         private int myAnts;
         private int startingAnts;
+        private boolean earlyFloodThresholdSet;
+        private int earlyFloodDistanceThreshold;
 
         public Game(int numCells, List<Point3D> bases, List<Point3D> enemyBases, HexIndices indices) {
             this.numCells = numCells;
@@ -274,6 +270,8 @@ public class Main {
             this.earlyGame = true;
             this.lastBeacons = new ArrayList<>();
             this.startingAnts = 0;
+            this.earlyFloodThresholdSet = false;
+            this.earlyFloodDistanceThreshold = 2;
         }
         
         public String gameLoop(Scanner in) {
@@ -329,118 +327,70 @@ public class Main {
                 this.id = id;
                 this.strength = strength;
             }
-            
         }
 
         private void addBeacon(Beacon b) {
-            beacons.merge(b.id, b, (b1, b2) -> new Beacon(b1.id, b1.strength + b2.strength));
+            beacons.merge(b.id, b, (b1, b2) -> new Beacon(b1.id, 1));
         }
 
-        private static class ContentionScore{
-            ClosestBase closestBase;
-            double score;
-            public ContentionScore(ClosestBase closestBase, double score) {
-                this.closestBase = closestBase;
-                this.score = score;
-            }
-            
-        }
-        // WAIT | LINE <sourceIdx> <targetIdx> <strength> | BEACON <cellIdx> <strength> | MESSAGE <text>
         private void decideBeacons() {
-            if (enemyHasFloodedCrystal()) {
+            if (needToShortCircuit()) {
                 earlyGame = false;
             }
             if (earlyGame) {
-                if (myAnts < 1.5 * enemyAnts) {
-                    if (earlyGameEggLines()) {
-                        earlyGameLines();
+                earlyFlood();
+            }
+            else {
+                lateFlood();
+            }
+        }
+
+        private void earlyFlood() {
+            Map<Integer, List<ClosestBase>> pathToAllEggs = eggSpots.stream()
+                .map(eggId -> getClosestBaseToTarget(bases, indices.getHex(eggId).pt))
+                .collect(Collectors.groupingBy(cb -> cb.bestPath.history.size() - 1));
+            Map<Integer, List<ClosestBase>> pathToAllCrystals = crystalSpots.stream()
+                .map(crystalId -> getClosestBaseToTarget(bases, indices.getHex(crystalId).pt))
+                .collect(Collectors.groupingBy(cb -> cb.bestPath.history.size() - 1));
+            int closestEggDistance = pathToAllEggs.keySet().stream().min(Comparator.naturalOrder()).get();
+            if (!earlyFloodThresholdSet) {
+                earlyFloodDistanceThreshold = Math.max(2, closestEggDistance);
+                earlyFloodThresholdSet = true;
+            }
+            if (closestEggDistance > earlyFloodDistanceThreshold || iHaveEnoughAnts()) {
+                earlyGame = false;
+                lateFlood();
+            }
+            else {
+                for (int i = 1; i <= earlyFloodDistanceThreshold; i++) {
+                    if (pathToAllEggs.containsKey(i)){
+                        pathToAllEggs.get(i).forEach(ClosestBase::addBeacons);
+                    }
+                    if (pathToAllCrystals.containsKey(i)){
+                        pathToAllCrystals.get(i).forEach(ClosestBase::addBeacons);
                     }
                 }
-                else {
-                    earlyGameLines();
-                }
-            }
-            else {
-                lateGameLines();
             }
         }
 
-        private boolean enemyHasFloodedCrystal() {
-            double crystalCoveredByEnemies = crystalSpotsCoveredByEnemies.entrySet().stream()
-                .filter(e -> e.getValue() > 0)
-                .map(e -> indices.getHex(e.getKey()).resources)
-                .collect(Collectors.reducing(0, Math::addExact));
-            double totalCrystalLeft = crystalSpots.stream()
-                .map(e -> indices.getHex(e).resources)
-                .collect(Collectors.reducing(0, Math::addExact));
-            return crystalCoveredByEnemies / totalCrystalLeft >= 0.7;
+        private void lateFlood() {
+            if (!iHaveEnoughAnts() && crystalSpots.size() > 4) {
+                eggSpots.stream()
+                    .map(eggId -> getClosestBaseToTarget(bases, indices.getHex(eggId).pt))
+                    .forEach(ClosestBase::addBeacons);
+            }
+            crystalSpots.stream()
+                .map(crystalId -> getClosestBaseToTarget(bases, indices.getHex(crystalId).pt))
+                .forEach(ClosestBase::addBeacons);
         }
 
-        /**
-         * 
-         * @return false if we failed to set any beacons
-         */
-        private boolean earlyGameEggLines() {
-            boolean fallbackOnOtherStrategies = true;
-            for (Integer id : eggSpots) {
-                ClosestBase closestBase = getClosestBaseToTarget(bases, indices.getHex(id).pt);
-                if (closestBase.bestPath.distance <= 2) {
-                    closestBase.addBeacons();
-                    fallbackOnOtherStrategies = false;
-                }
-            }
-            return fallbackOnOtherStrategies;
+        private boolean iHaveEnoughAnts() {
+            return myAnts > 1.5 * enemyAnts;
         }
 
-        private void earlyGameLines() {
-            Map<Integer, ContentionScore> contentionScores = new HashMap<>();
-            for (Integer id : crystalSpots) {
-                ClosestBase closestBase = getClosestBaseToTarget(bases, indices.getHex(id).pt);
-                if (crystalIsALostCause(id, closestBase)) {
-                    continue;
-                }
-                ClosestBase closestOpponent = getClosestBaseToTarget(enemyBases, indices.getHex(id).pt);
-                double score = Math.abs(closestOpponent.bestPath.distance - closestBase.bestPath.distance);
-                contentionScores.put(id, new ContentionScore(closestBase, score));
-            }
-            List<Map.Entry<Integer, ContentionScore>> sortedScores = contentionScores.entrySet().stream()
-                .sorted(Comparator.comparing(entry -> entry.getValue().score)).collect(Collectors.toList());
-            Map.Entry<Integer, ContentionScore> bestPick = sortedScores.get(0);
-            if (bestPick.getValue().score > 4) {
-                earlyGame = false;
-                lateGameLines();
-            }
-            else {
-                bestPick.getValue().closestBase.addBeacons();
-            }
-        }
-
-        private boolean crystalIsALostCause(int id, ClosestBase closestBase) {
-            Hex h = indices.getHex(id);
-            if (h.enemyAnts == 0 || h.myAnts > 0) {
-                return false;
-            }
-            return closestBase.bestPath.distance >= indices.getHex(id).resources;
-        }
-
-        private void lateGameLines() {
-            boolean switchToEnemyTerritory = true;
-            ClosestBase closestOpponentResource = new ClosestBase(null, new SearchNode(null, Double.MAX_VALUE, new ArrayList<>()));
-            for (Integer id : crystalSpots) {
-                ClosestBase closestOpponent = getClosestBaseToTarget(enemyBases, indices.getHex(id).pt);
-                ClosestBase closestBase = getClosestBaseToTarget(bases, indices.getHex(id).pt);
-                if (closestBase.bestPath.distance <= closestOpponent.bestPath.distance) {
-                    closestBase.addBeacons();
-                    switchToEnemyTerritory = false;
-                }
-                else if (closestBase.bestPath.distance < closestOpponentResource.bestPath.distance) {
-                    closestOpponentResource = closestBase;
-                }
-            }
-            if (switchToEnemyTerritory) {
-                //Strange end-game situation where we need to extend into enemy territory
-                closestOpponentResource.addBeacons();
-            }
+        private boolean needToShortCircuit() {
+            return eggSpots.isEmpty()
+                || crystalSpots.size() < 5;
         }
 
         private class ClosestBase{
