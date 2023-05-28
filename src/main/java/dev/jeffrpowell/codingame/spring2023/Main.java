@@ -352,7 +352,9 @@ public class Main {
             }
             if (earlyGame) {
                 if (myAnts < 1.5 * enemyAnts) {
-                    earlyGameEggLines();
+                    if (earlyGameEggLines()) {
+                        earlyGameLines();
+                    }
                 }
                 else {
                     earlyGameLines();
@@ -374,13 +376,20 @@ public class Main {
             return crystalCoveredByEnemies / totalCrystalLeft >= 0.7;
         }
 
-        private void earlyGameEggLines() {
+        /**
+         * 
+         * @return false if we failed to set any beacons
+         */
+        private boolean earlyGameEggLines() {
+            boolean fallbackOnOtherStrategies = true;
             for (Integer id : eggSpots) {
                 ClosestBase closestBase = getClosestBaseToTarget(bases, indices.getHex(id).pt);
                 if (closestBase.bestPath.distance <= 2) {
                     closestBase.addBeacons();
+                    fallbackOnOtherStrategies = false;
                 }
             }
+            return fallbackOnOtherStrategies;
         }
 
         private void earlyGameLines() {
@@ -391,7 +400,7 @@ public class Main {
                     continue;
                 }
                 ClosestBase closestOpponent = getClosestBaseToTarget(enemyBases, indices.getHex(id).pt);
-                double score = Math.abs(closestOpponent.realDistance - closestBase.realDistance);
+                double score = Math.abs(closestOpponent.bestPath.distance - closestBase.bestPath.distance);
                 contentionScores.put(id, new ContentionScore(closestBase, score));
             }
             List<Map.Entry<Integer, ContentionScore>> sortedScores = contentionScores.entrySet().stream()
@@ -411,7 +420,7 @@ public class Main {
             if (h.enemyAnts == 0 || h.myAnts > 0) {
                 return false;
             }
-            return closestBase.realDistance >= indices.getHex(id).resources;
+            return closestBase.bestPath.distance >= indices.getHex(id).resources;
         }
 
         private void lateGameLines() {
@@ -420,11 +429,11 @@ public class Main {
             for (Integer id : crystalSpots) {
                 ClosestBase closestOpponent = getClosestBaseToTarget(enemyBases, indices.getHex(id).pt);
                 ClosestBase closestBase = getClosestBaseToTarget(bases, indices.getHex(id).pt);
-                if (closestBase.realDistance <= closestOpponent.realDistance) {
+                if (closestBase.bestPath.distance <= closestOpponent.bestPath.distance) {
                     closestBase.addBeacons();
                     switchToEnemyTerritory = false;
                 }
-                else if (closestBase.realDistance < closestOpponentResource.realDistance) {
+                else if (closestBase.bestPath.distance < closestOpponentResource.bestPath.distance) {
                     closestOpponentResource = closestBase;
                 }
             }
@@ -437,11 +446,9 @@ public class Main {
         private class ClosestBase{
             Point3D base;
             SearchNode bestPath;
-            int realDistance;
             public ClosestBase(Point3D base, SearchNode bestPath) {
                 this.base = base;
                 this.bestPath = bestPath;
-                this.realDistance = bestPath.history.size();
             }
             
             public void addBeacons() {
@@ -498,6 +505,7 @@ public class Main {
                         contender = n;
                         contenderMaxDistance = n.distance + 1;
                         resourceHexesToBeat = n.numResourcesInPath();
+                        return contender;
                     }
                     else if (n.distance > contenderMaxDistance) {
                         return contender;
@@ -511,34 +519,23 @@ public class Main {
                 if (!visited.add(n.pt)) {
                     continue;
                 }
-                validNeighbors(n.pt).stream()
-                    .map(p -> new SearchNode(p, tweakDistanceToThisNode(p, n.distance), n.history))
+                validNeighbors(n).stream()
+                    .map(p -> new SearchNode(p, n.distance + 1, n.history.stream().collect(Collectors.toList())))
                     .forEach(q::add);
             }
             return null;
         }
-        private double tweakDistanceToThisNode(Point3D pt, double distanceSoFar) {
-            // Hex h = indices.getHex(pt);
-            // if (h.type == 1) {
-            //     return distanceSoFar + 0.9;
-            // }
-            // else if (h.type == 2) {
-            //     return distanceSoFar + 0.8;
-            // }
-            // else {
-                return distanceSoFar + 1;
-            // }
-        }
-        private List<Point3D> validNeighbors(Point3D pt) {
+        private List<Point3D> validNeighbors(SearchNode n) {
             return Stream.of(
-                pt.add(1, 0, -1),
-                pt.add(1, -1, 0),
-                pt.add(0, -1, 1),
-                pt.add(-1, 0, 1),
-                pt.add(-1, 1, 0),
-                pt.add(0, 1, -1)
+                n.pt.add(1, 0, -1),
+                n.pt.add(1, -1, 0),
+                n.pt.add(0, -1, 1),
+                n.pt.add(-1, 0, 1),
+                n.pt.add(-1, 1, 0),
+                n.pt.add(0, 1, -1)
             )
             .filter(indices.ptToHexMap::containsKey)
+            .filter(pt -> !n.history.contains(pt))
             .map(indices::getHex)
             .filter(h -> h.type != -1)
             .map(Hex::pt)
