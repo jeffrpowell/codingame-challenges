@@ -129,12 +129,12 @@ public class Main {
         Map<Point3D, Hex> ptToHexMap = new HashMap<>();
         Map<Integer, Hex> idToHexMap = new HashMap<>();
         for (HexBuilder builder : hexBuilderMap.values()) {
-            Hex h = new Hex(builder.id, builder.pt, builder.type, builder.initialResources);
+            Hex h = new Hex(builder.id, builder.pt, builder.type, builder.initialResources, 0, 0);
             ptToHexMap.put(builder.pt, h);
             idToHexMap.put(builder.id, h);
             for (int i = 0; i < builder.neighbor.length; i++) {
                 if (builder.neighbor[i] == -1) {
-                    Hex emptyHex = new Hex(-1, builder.neighborPts.get(i), -1, 0);
+                    Hex emptyHex = new Hex(-1, builder.neighborPts.get(i), -1, 0, 0 ,0);
                     ptToHexMap.put(builder.neighborPts.get(i), emptyHex);    
                 }
             }
@@ -227,13 +227,17 @@ public class Main {
         Point3D pt;
         int type;
         int resources;
-        public Hex(int id, Point3D pt, int type, int resources) {
+        int myAnts;
+        int enemyAnts;
+        
+        public Hex(int id, Point3D pt, int type, int resources, int myAnts, int enemyAnts) {
             this.id = id;
             this.pt = pt;
             this.type = type;
             this.resources = resources;
+            this.myAnts = myAnts;
+            this.enemyAnts = enemyAnts;
         }
-        
         public int id() {
             return this.id;
         }
@@ -249,8 +253,12 @@ public class Main {
         private final HexIndices indices;
         private List<Integer> eggSpots;
         private List<Integer> crystalSpots;
+        private Map<Integer, Integer> crystalSpotsCoveredByEnemies;
         private boolean earlyGame;
         private List<Line> lastLines;
+        private int enemyAnts;
+        private int myAnts;
+        private int startingAnts;
 
         public Game(int numCells, List<Point3D> bases, List<Point3D> enemyBases, HexIndices indices) {
             this.numCells = numCells;
@@ -259,43 +267,54 @@ public class Main {
             this.indices = indices;
             this.eggSpots = indices.idToHexMap.values().stream().filter(h -> h.type == 1).map(Hex::id).collect(Collectors.toList());
             this.crystalSpots = indices.idToHexMap.values().stream().filter(h -> h.type == 2).map(Hex::id).collect(Collectors.toList());
+            this.crystalSpotsCoveredByEnemies = new HashMap<>();
             this.earlyGame = true;
             this.lastLines = new ArrayList<>();
+            this.startingAnts = 0;
         }
         
         public String gameLoop(Scanner in) {
-            for (Integer id : eggSpots) {
-                Hex h = indices.getHex(id);
-                indices.putHex(id, new Hex(h.id, h.pt, h.type, 0));
-            }
-            for (Integer id : crystalSpots) {
-                Hex h = indices.getHex(id);
-                indices.putHex(id, new Hex(h.id, h.pt, h.type, 0));
-            }
-            eggSpots.clear();
-            crystalSpots.clear();
+            clearLastTurnState();
             for (int i = 0; i < numCells; i++) {
                 int resources = in.nextInt(); // the current amount of eggs/crystals on this cell
-                if (resources > 0) {
-                    Hex h = indices.getHex(i);
-                    if (h.resources != resources) {
-                        indices.putHex(i, new Hex(h.id, h.pt, h.type, resources));
-                        if (h.type == 1) {
-                            eggSpots.add(h.id);
-                        }
-                        else {
-                            crystalSpots.add(h.id);
-                        }
-                    }
+                int myAntsOnCell = in.nextInt(); // the amount of your ants on this cell
+                int oppAntsOnCell = in.nextInt(); // the amount of opponent ants on this cell
+                this.myAnts += myAntsOnCell;
+                this.enemyAnts += oppAntsOnCell;
+                Hex h = indices.getHex(i);
+                indices.putHex(i, new Hex(h.id, h.pt, h.type, resources, myAntsOnCell, oppAntsOnCell));
+                if (h.type == 1 && resources > 0) {
+                    eggSpots.add(h.id);
                 }
-                int myAnts = in.nextInt(); // the amount of your ants on this cell
-                int oppAnts = in.nextInt(); // the amount of opponent ants on this cell
+                else if (h.type == 2 && resources > 0) {
+                    crystalSpots.add(h.id);
+                    crystalSpotsCoveredByEnemies.put(h.id, oppAntsOnCell);
+                }
+            }
+            if (startingAnts == 0) {
+                startingAnts = myAnts;
             }
             List<Line> lines = decideLines();
             if (lines.isEmpty()) {
                 return "WAIT";
             }
             return lines.stream().map(b -> "LINE "+b.baseId+" "+b.targetId+" "+b.strength).collect(Collectors.joining(";"));
+        }
+
+        private void clearLastTurnState() {
+            for (Integer id : eggSpots) {
+                Hex h = indices.getHex(id);
+                indices.putHex(id, new Hex(h.id, h.pt, h.type, 0, 0, 0));
+            }
+            for (Integer id : crystalSpots) {
+                Hex h = indices.getHex(id);
+                indices.putHex(id, new Hex(h.id, h.pt, h.type, 0, 0, 0));
+            }
+            eggSpots.clear();
+            crystalSpots.clear();
+            crystalSpotsCoveredByEnemies.clear();
+            myAnts = 0;
+            enemyAnts = 0;
         }
         
         private static class Line{
@@ -312,8 +331,8 @@ public class Main {
 
         private static class ContentionScore{
             ClosestBase closestBase;
-            int score;
-            public ContentionScore(ClosestBase closestBase, int score) {
+            double score;
+            public ContentionScore(ClosestBase closestBase, double score) {
                 this.closestBase = closestBase;
                 this.score = score;
             }
@@ -321,6 +340,9 @@ public class Main {
         }
         // WAIT | LINE <sourceIdx> <targetIdx> <strength> | BEACON <cellIdx> <strength> | MESSAGE <text>
         private List<Line> decideLines() {
+            if (enemyHasFloodedCrystal()) {
+                earlyGame = false;
+            }
             if (earlyGame) {
                 List<Line> eggLines = earlyGameEggLines();
                 if (eggLines.isEmpty()) {
@@ -333,12 +355,26 @@ public class Main {
             return lateGameLines();
         }
 
+        private boolean enemyHasFloodedCrystal() {
+            double crystalCoveredByEnemies = crystalSpotsCoveredByEnemies.entrySet().stream()
+                .filter(e -> e.getValue() > 0)
+                .map(e -> indices.getHex(e.getKey()).resources)
+                .collect(Collectors.reducing(0, Math::addExact));
+            double totalCrystalLeft = crystalSpots.stream()
+                .map(e -> indices.getHex(e).resources)
+                .collect(Collectors.reducing(0, Math::addExact));
+            return crystalCoveredByEnemies / totalCrystalLeft >= 0.7;
+        }
+
         private List<Line> earlyGameEggLines() {
             List<Line> lines = new ArrayList<>();
+            if (myAnts >= 1.5 * enemyAnts) {
+                return lines;
+            }
             for (Integer id : eggSpots) {
                 ClosestBase closestBase = calcDistanceFromBasesToPt(bases, indices.getHex(id).pt);
-                if (closestBase.distance <= 3) {
-                    lines.add(new Line(indices.getHex(closestBase.base).id, id, closestBase.distance));
+                if (closestBase.distance <= 2) {
+                    lines.add(new Line(indices.getHex(closestBase.base).id, id, Double.valueOf(closestBase.distance).intValue()));
                 }
             }
             return lines;
@@ -347,9 +383,12 @@ public class Main {
         private List<Line> earlyGameLines() {
             Map<Integer, ContentionScore> contentionScores = new HashMap<>();
             for (Integer id : crystalSpots) {
-                ClosestBase closestOpponent = calcDistanceFromBasesToPt(enemyBases, indices.getHex(id).pt);
                 ClosestBase closestBase = calcDistanceFromBasesToPt(bases, indices.getHex(id).pt);
-                int score = Math.abs(closestOpponent.distance - closestBase.distance);
+                if (crystalIsALostCause(id, closestBase)) {
+                    continue;
+                }
+                ClosestBase closestOpponent = calcDistanceFromBasesToPt(enemyBases, indices.getHex(id).pt);
+                double score = Math.abs(closestOpponent.distance - closestBase.distance);
                 contentionScores.put(id, new ContentionScore(closestBase, score));
             }
             List<Map.Entry<Integer, ContentionScore>> sortedScores = contentionScores.entrySet().stream()
@@ -376,6 +415,14 @@ public class Main {
             ));
         }
 
+        private boolean crystalIsALostCause(int id, ClosestBase closestBase) {
+            Hex h = indices.getHex(id);
+            if (h.enemyAnts == 0 || h.myAnts > 0) {
+                return false;
+            }
+            return closestBase.distance >= indices.getHex(id).resources;
+        }
+
         private List<Line> lateGameLines() {
             List<Line> lines = new ArrayList<>();
             ClosestBase closestOpponentResource = new ClosestBase(null, Integer.MAX_VALUE);
@@ -384,7 +431,7 @@ public class Main {
                 ClosestBase closestOpponent = calcDistanceFromBasesToPt(enemyBases, indices.getHex(id).pt);
                 ClosestBase closestBase = calcDistanceFromBasesToPt(bases, indices.getHex(id).pt);
                 if (closestBase.distance <= closestOpponent.distance) {
-                    lines.add(new Line(indices.getHex(closestBase.base).id, id, closestBase.distance));
+                    lines.add(new Line(indices.getHex(closestBase.base).id, id, Double.valueOf(closestBase.distance).intValue()));
                 }
                 else if (closestBase.distance < closestOpponentResource.distance) {
                     closestOpponentResource = closestBase;
@@ -400,17 +447,17 @@ public class Main {
 
         private static class ClosestBase{
             Point3D base;
-            int distance;
-            public ClosestBase(Point3D base, int distance) {
+            double distance;
+            public ClosestBase(Point3D base, double distance) {
                 this.base = base;
                 this.distance = distance;
             }
             
         }
         private ClosestBase calcDistanceFromBasesToPt(List<Point3D> baseList, Point3D target) {
-            ClosestBase closest = new ClosestBase(null, Integer.MAX_VALUE);
+            ClosestBase closest = new ClosestBase(null, Double.MAX_VALUE);
             for (Point3D base : baseList) {
-                int distance = calcDistanceFromBaseToPt(base, target);
+                double distance = calcDistanceFromBaseToPt(base, target);
                 if (distance < closest.distance) {
                     closest = new ClosestBase(base, distance);
                 }
@@ -420,21 +467,24 @@ public class Main {
 
         private static class SearchNode {
             Point3D pt;
-            int distance;
+            double distance;
+            List<Point3D> history;
             
-            public SearchNode(Point3D pt, int distance) {
+            public SearchNode(Point3D pt, double distance, List<Point3D> history) {
                 this.pt = pt;
                 this.distance = distance;
+                this.history = history;
+                this.history.add(pt);
             }
 
             public double heuristic(Point3D target) {
                 return distance + pt.distance(target);
             }
         }
-        private int calcDistanceFromBaseToPt(Point3D base, Point3D target) {
+        private double calcDistanceFromBaseToPt(Point3D base, Point3D target) {
             PriorityQueue<SearchNode> q = new PriorityQueue<>(Comparator.comparingDouble(s -> s.heuristic(target)));
             Set<Point3D> visited = new HashSet<>();
-            q.add(new SearchNode(base, 0));
+            q.add(new SearchNode(base, 0, new ArrayList<>()));
             while (!q.isEmpty()) {
                 SearchNode n = q.poll();
                 if (n.pt.equals(target)) {
@@ -444,10 +494,17 @@ public class Main {
                     continue;
                 }
                 validNeighbors(n.pt).stream()
-                    .map(p -> new SearchNode(p, n.distance + 1))
+                    .map(p -> new SearchNode(p, tweakDistanceToThisNode(p, n.distance), n.history))
                     .forEach(q::add);
             }
             return -1;
+        }
+        private double tweakDistanceToThisNode(Point3D pt, double distanceSoFar) {
+            Hex h = indices.getHex(pt);
+            if (h.type > 0) {
+                return distanceSoFar + 0.6;
+            }
+            return distanceSoFar + 1;
         }
         private List<Point3D> validNeighbors(Point3D pt) {
             return Stream.of(
