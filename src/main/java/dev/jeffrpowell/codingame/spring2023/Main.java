@@ -1,6 +1,7 @@
 package dev.jeffrpowell.codingame.spring2023;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -255,7 +256,8 @@ public class Main {
         private List<Integer> crystalSpots;
         private Map<Integer, Integer> crystalSpotsCoveredByEnemies;
         private boolean earlyGame;
-        private List<Line> lastLines;
+        private Collection<Beacon> lastBeacons;
+        private Map<Integer, Beacon> beacons;
         private int enemyAnts;
         private int myAnts;
         private int startingAnts;
@@ -268,8 +270,9 @@ public class Main {
             this.eggSpots = indices.idToHexMap.values().stream().filter(h -> h.type == 1).map(Hex::id).collect(Collectors.toList());
             this.crystalSpots = indices.idToHexMap.values().stream().filter(h -> h.type == 2).map(Hex::id).collect(Collectors.toList());
             this.crystalSpotsCoveredByEnemies = new HashMap<>();
+            this.beacons = new HashMap<>();
             this.earlyGame = true;
-            this.lastLines = new ArrayList<>();
+            this.lastBeacons = new ArrayList<>();
             this.startingAnts = 0;
         }
         
@@ -294,11 +297,12 @@ public class Main {
             if (startingAnts == 0) {
                 startingAnts = myAnts;
             }
-            List<Line> lines = decideLines();
-            if (lines.isEmpty()) {
+            decideBeacons();
+            if (beacons.isEmpty()) {
                 return "WAIT";
             }
-            return lines.stream().map(b -> "LINE "+b.baseId+" "+b.targetId+" "+b.strength).collect(Collectors.joining(";"));
+            lastBeacons = beacons.values();
+            return beacons.values().stream().map(b -> "BEACON "+b.id+" "+b.strength).collect(Collectors.joining(";"));
         }
 
         private void clearLastTurnState() {
@@ -313,20 +317,23 @@ public class Main {
             eggSpots.clear();
             crystalSpots.clear();
             crystalSpotsCoveredByEnemies.clear();
+            beacons.clear();
             myAnts = 0;
             enemyAnts = 0;
         }
         
-        private static class Line{
-            int baseId;
-            int targetId;
+        private static class Beacon{
+            int id;
             int strength;
-            public Line(int baseId, int targetId, int strength) {
-                this.baseId = baseId;
-                this.targetId = targetId;
+            public Beacon(int id, int strength) {
+                this.id = id;
                 this.strength = strength;
             }
             
+        }
+
+        private void addBeacon(Beacon b) {
+            beacons.merge(b.id, b, (b1, b2) -> new Beacon(b1.id, b1.strength + b2.strength));
         }
 
         private static class ContentionScore{
@@ -339,20 +346,21 @@ public class Main {
             
         }
         // WAIT | LINE <sourceIdx> <targetIdx> <strength> | BEACON <cellIdx> <strength> | MESSAGE <text>
-        private List<Line> decideLines() {
+        private void decideBeacons() {
             if (enemyHasFloodedCrystal()) {
                 earlyGame = false;
             }
             if (earlyGame) {
-                List<Line> eggLines = earlyGameEggLines();
-                if (eggLines.isEmpty()) {
-                    return earlyGameLines();
+                if (myAnts < 1.5 * enemyAnts) {
+                    earlyGameEggLines();
                 }
                 else {
-                    return eggLines;
+                    earlyGameLines();
                 }
             }
-            return lateGameLines();
+            else {
+                lateGameLines();
+            }
         }
 
         private boolean enemyHasFloodedCrystal() {
@@ -366,53 +374,36 @@ public class Main {
             return crystalCoveredByEnemies / totalCrystalLeft >= 0.7;
         }
 
-        private List<Line> earlyGameEggLines() {
-            List<Line> lines = new ArrayList<>();
-            if (myAnts >= 1.5 * enemyAnts) {
-                return lines;
-            }
+        private void earlyGameEggLines() {
             for (Integer id : eggSpots) {
-                ClosestBase closestBase = calcDistanceFromBasesToPt(bases, indices.getHex(id).pt);
-                if (closestBase.distance <= 2) {
-                    lines.add(new Line(indices.getHex(closestBase.base).id, id, Double.valueOf(closestBase.distance).intValue()));
+                ClosestBase closestBase = getClosestBaseToTarget(bases, indices.getHex(id).pt);
+                if (closestBase.bestPath.distance <= 2) {
+                    closestBase.addBeacons();
                 }
             }
-            return lines;
         }
 
-        private List<Line> earlyGameLines() {
+        private void earlyGameLines() {
             Map<Integer, ContentionScore> contentionScores = new HashMap<>();
             for (Integer id : crystalSpots) {
-                ClosestBase closestBase = calcDistanceFromBasesToPt(bases, indices.getHex(id).pt);
+                ClosestBase closestBase = getClosestBaseToTarget(bases, indices.getHex(id).pt);
                 if (crystalIsALostCause(id, closestBase)) {
                     continue;
                 }
-                ClosestBase closestOpponent = calcDistanceFromBasesToPt(enemyBases, indices.getHex(id).pt);
-                double score = Math.abs(closestOpponent.distance - closestBase.distance);
+                ClosestBase closestOpponent = getClosestBaseToTarget(enemyBases, indices.getHex(id).pt);
+                double score = Math.abs(closestOpponent.realDistance - closestBase.realDistance);
                 contentionScores.put(id, new ContentionScore(closestBase, score));
             }
             List<Map.Entry<Integer, ContentionScore>> sortedScores = contentionScores.entrySet().stream()
                 .sorted(Comparator.comparing(entry -> entry.getValue().score)).collect(Collectors.toList());
             Map.Entry<Integer, ContentionScore> bestPick = sortedScores.get(0);
-            if (sortedScores.size() > 1) {
-                Map.Entry<Integer, ContentionScore> secondPick = sortedScores.get(1);
-                if (!lastLines.isEmpty()) {
-                    double distanceToBest = indices.getHex(lastLines.get(0).targetId).pt.distance(indices.getHex(bestPick.getKey()).pt);
-                    double distanceToSecond = indices.getHex(lastLines.get(0).targetId).pt.distance(indices.getHex(bestPick.getKey()).pt);
-                    if (distanceToSecond < distanceToBest) {
-                        bestPick = secondPick;
-                    }
-                }
-            }
             if (bestPick.getValue().score > 4) {
                 earlyGame = false;
-                return lateGameLines();
+                lateGameLines();
             }
-            return Collections.singletonList(new Line(
-                indices.getHex(bestPick.getValue().closestBase.base).id,
-                bestPick.getKey(),
-                1
-            ));
+            else {
+                bestPick.getValue().closestBase.addBeacons();
+            }
         }
 
         private boolean crystalIsALostCause(int id, ClosestBase closestBase) {
@@ -420,52 +411,57 @@ public class Main {
             if (h.enemyAnts == 0 || h.myAnts > 0) {
                 return false;
             }
-            return closestBase.distance >= indices.getHex(id).resources;
+            return closestBase.realDistance >= indices.getHex(id).resources;
         }
 
-        private List<Line> lateGameLines() {
-            List<Line> lines = new ArrayList<>();
-            ClosestBase closestOpponentResource = new ClosestBase(null, Integer.MAX_VALUE);
-            int closestOpponentResourceId = -1;
+        private void lateGameLines() {
+            boolean switchToEnemyTerritory = true;
+            ClosestBase closestOpponentResource = new ClosestBase(null, new SearchNode(null, Double.MAX_VALUE, new ArrayList<>()));
             for (Integer id : crystalSpots) {
-                ClosestBase closestOpponent = calcDistanceFromBasesToPt(enemyBases, indices.getHex(id).pt);
-                ClosestBase closestBase = calcDistanceFromBasesToPt(bases, indices.getHex(id).pt);
-                if (closestBase.distance <= closestOpponent.distance) {
-                    lines.add(new Line(indices.getHex(closestBase.base).id, id, Double.valueOf(closestBase.distance).intValue()));
+                ClosestBase closestOpponent = getClosestBaseToTarget(enemyBases, indices.getHex(id).pt);
+                ClosestBase closestBase = getClosestBaseToTarget(bases, indices.getHex(id).pt);
+                if (closestBase.realDistance <= closestOpponent.realDistance) {
+                    closestBase.addBeacons();
+                    switchToEnemyTerritory = false;
                 }
-                else if (closestBase.distance < closestOpponentResource.distance) {
+                else if (closestBase.realDistance < closestOpponentResource.realDistance) {
                     closestOpponentResource = closestBase;
-                    closestOpponentResourceId = id;
                 }
             }
-            if (lines.isEmpty()) {
+            if (switchToEnemyTerritory) {
                 //Strange end-game situation where we need to extend into enemy territory
-                lines.add(new Line(indices.getHex(closestOpponentResource.base).id, closestOpponentResourceId, 1));
+                closestOpponentResource.addBeacons();
             }
-            return lines;
         }
 
-        private static class ClosestBase{
+        private class ClosestBase{
             Point3D base;
-            double distance;
-            public ClosestBase(Point3D base, double distance) {
+            SearchNode bestPath;
+            int realDistance;
+            public ClosestBase(Point3D base, SearchNode bestPath) {
                 this.base = base;
-                this.distance = distance;
+                this.bestPath = bestPath;
+                this.realDistance = bestPath.history.size();
             }
             
+            public void addBeacons() {
+                for (Point3D pt : bestPath.history) {
+                    addBeacon(new Beacon(indices.getHex(pt).id, 1));
+                }
+            }
         }
-        private ClosestBase calcDistanceFromBasesToPt(List<Point3D> baseList, Point3D target) {
-            ClosestBase closest = new ClosestBase(null, Double.MAX_VALUE);
+        private ClosestBase getClosestBaseToTarget(List<Point3D> baseList, Point3D target) {
+            ClosestBase closest = new ClosestBase(null, new SearchNode(null, Double.MAX_VALUE, new ArrayList<>()));
             for (Point3D base : baseList) {
-                double distance = calcDistanceFromBaseToPt(base, target);
-                if (distance < closest.distance) {
-                    closest = new ClosestBase(base, distance);
+                SearchNode bestPath = getPathFromBaseToPt(base, target);
+                if (bestPath != null && bestPath.distance < closest.bestPath.distance) {
+                    closest = new ClosestBase(base, bestPath);
                 }
             }
             return closest;
         }
 
-        private static class SearchNode {
+        private class SearchNode {
             Point3D pt;
             double distance;
             List<Point3D> history;
@@ -480,15 +476,37 @@ public class Main {
             public double heuristic(Point3D target) {
                 return distance + pt.distance(target);
             }
+
+            public long numResourcesInPath() {
+                return history.stream()
+                    .map(indices::getHex)
+                    .filter(h -> h.type > 0)
+                    .count();
+            }
         }
-        private double calcDistanceFromBaseToPt(Point3D base, Point3D target) {
+        private SearchNode getPathFromBaseToPt(Point3D base, Point3D target) {
             PriorityQueue<SearchNode> q = new PriorityQueue<>(Comparator.comparingDouble(s -> s.heuristic(target)));
             Set<Point3D> visited = new HashSet<>();
+            SearchNode contender = null;
+            double contenderMaxDistance = -1;
+            long resourceHexesToBeat = -1;
             q.add(new SearchNode(base, 0, new ArrayList<>()));
             while (!q.isEmpty()) {
                 SearchNode n = q.poll();
                 if (n.pt.equals(target)) {
-                    return n.distance;
+                    if (contenderMaxDistance == -1) {
+                        contender = n;
+                        contenderMaxDistance = n.distance + 1;
+                        resourceHexesToBeat = n.numResourcesInPath();
+                    }
+                    else if (n.distance > contenderMaxDistance) {
+                        return contender;
+                    }
+                    else if (n.numResourcesInPath() > resourceHexesToBeat) {
+                        contender = n;
+                        resourceHexesToBeat = n.numResourcesInPath();
+                    }
+                    continue;
                 }
                 if (!visited.add(n.pt)) {
                     continue;
@@ -497,14 +515,19 @@ public class Main {
                     .map(p -> new SearchNode(p, tweakDistanceToThisNode(p, n.distance), n.history))
                     .forEach(q::add);
             }
-            return -1;
+            return null;
         }
         private double tweakDistanceToThisNode(Point3D pt, double distanceSoFar) {
-            Hex h = indices.getHex(pt);
-            if (h.type > 0) {
-                return distanceSoFar + 0.6;
-            }
-            return distanceSoFar + 1;
+            // Hex h = indices.getHex(pt);
+            // if (h.type == 1) {
+            //     return distanceSoFar + 0.9;
+            // }
+            // else if (h.type == 2) {
+            //     return distanceSoFar + 0.8;
+            // }
+            // else {
+                return distanceSoFar + 1;
+            // }
         }
         private List<Point3D> validNeighbors(Point3D pt) {
             return Stream.of(
