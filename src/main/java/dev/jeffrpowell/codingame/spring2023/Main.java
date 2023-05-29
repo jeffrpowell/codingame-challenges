@@ -2,6 +2,7 @@ package dev.jeffrpowell.codingame.spring2023;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -337,15 +338,11 @@ public class Main {
             if (needToShortCircuit()) {
                 earlyGame = false;
             }
-            if (earlyGame) {
-                earlyFlood();
-            }
-            else {
-                lateFlood();
-            }
+            List<Point3D> targetPts = earlyGame ? earlyFlood() : lateFlood();
+            // findMinimumSpanningTree(targetPts, targetPts)
         }
 
-        private void earlyFlood() {
+        private List<Point3D> earlyFlood() {
             Map<Integer, List<ClosestBase>> pathToAllEggs = eggSpots.stream()
                 .map(eggId -> getClosestBaseToTarget(bases, indices.getHex(eggId).pt))
                 .collect(Collectors.groupingBy(cb -> cb.bestPath.history.size() - 1));
@@ -371,9 +368,10 @@ public class Main {
                     }
                 }
             }
+            return new ArrayList<>();
         }
 
-        private void lateFlood() {
+        private List<Point3D> lateFlood() {
             if (!iHaveEnoughAnts() && crystalSpots.size() > 4) {
                 eggSpots.stream()
                     .map(eggId -> getClosestBaseToTarget(bases, indices.getHex(eggId).pt))
@@ -382,6 +380,7 @@ public class Main {
             crystalSpots.stream()
                 .map(crystalId -> getClosestBaseToTarget(bases, indices.getHex(crystalId).pt))
                 .forEach(ClosestBase::addBeacons);
+            return new ArrayList<>();
         }
 
         private boolean iHaveEnoughAnts() {
@@ -433,38 +432,15 @@ public class Main {
             public double heuristic(Point3D target) {
                 return distance + pt.distance(target);
             }
-
-            public long numResourcesInPath() {
-                return history.stream()
-                    .map(indices::getHex)
-                    .filter(h -> h.type > 0)
-                    .count();
-            }
         }
         private SearchNode getPathFromBaseToPt(Point3D base, Point3D target) {
             PriorityQueue<SearchNode> q = new PriorityQueue<>(Comparator.comparingDouble(s -> s.heuristic(target)));
             Set<Point3D> visited = new HashSet<>();
-            SearchNode contender = null;
-            double contenderMaxDistance = -1;
-            long resourceHexesToBeat = -1;
             q.add(new SearchNode(base, 0, new ArrayList<>()));
             while (!q.isEmpty()) {
                 SearchNode n = q.poll();
                 if (n.pt.equals(target)) {
-                    if (contenderMaxDistance == -1) {
-                        contender = n;
-                        contenderMaxDistance = n.distance + 1;
-                        resourceHexesToBeat = n.numResourcesInPath();
-                        return contender;
-                    }
-                    else if (n.distance > contenderMaxDistance) {
-                        return contender;
-                    }
-                    else if (n.numResourcesInPath() > resourceHexesToBeat) {
-                        contender = n;
-                        resourceHexesToBeat = n.numResourcesInPath();
-                    }
-                    continue;
+                    return n;
                 }
                 if (!visited.add(n.pt)) {
                     continue;
@@ -490,6 +466,141 @@ public class Main {
             .filter(h -> h.type != -1)
             .map(Hex::pt)
             .collect(Collectors.toList());
+        }
+    
+        /**
+         * Find minimum spanning tree using Kruskal's Algorithm for Hexagonal Grids
+         * 
+         * TODO: Need to change this generated code
+         * 1 - Instantiate a forest of size=1 trees of all points of interest (typically my base, eggs, and crystals)
+         * 2 - Union all trees together that are distance=1 from each other (need to while-loop successive waves on this one)
+         * 3 - Instantiate searchDistance = 2
+         * 4 - Search for all trees that are searchDistance away from the tree containing my base
+         * 5 - Calculate which hexes are in the intersecting region (regions is searchDistance large) between the home tree and all found trees
+         * 6 - Establish a waypoint region (http://theory.stanford.edu/~amitp/GameProgramming/MapRepresentations.html#waypoints) for the points that are in the most intersecting regions
+         * 6a - Ensure that you track which frontier trees are associated with each waypoint region
+         * 6b - If a frontier tree hasn't been accounted for yet, go to the set of points in the next most amount of intersecting regions, etc., until all frontier trees are accounted for
+         * 6c - http://theory.stanford.edu/~amitp/GameProgramming/Heuristics.html#multiple-goals and http://theory.stanford.edu/~amitp/GameProgramming/Heuristics.html#precomputed-exact-heuristic
+         * 7 - Starting from the home tree, A* with a heuristic that hits the waypoint first, then goes to the target tree
+         * 8 - Store the path to each frontier tree in the min span tree structure; connect all the trees identified in #4
+         * 9 - While-loop 4-8, increase searchDistance each time, until there is only one tree; shuttle all identified hexes to beacon-creation
+         * 
+         * @param grid
+         * @param pointsOfInterest
+         * @return
+         */
+        public static List<Point3D> findMinimumSpanningTree(List<Point3D> grid, List<Point3D> pointsOfInterest) {
+            List<Point3D> minimumSpanningTree = new ArrayList<>();
+            List<Edge> allEdges = new ArrayList<>();
+            UnionFind<Point3D> unionFind = new UnionFind<>();
+            
+            // Add all edges to the list
+            for (int i = 0; i < grid.size(); i++) {
+                for (int j = i + 1; j < grid.size(); j++) {
+                    Point3D p1 = grid.get(i);
+                    Point3D p2 = grid.get(j);
+                    allEdges.add(new Edge(p1, p2));
+                }
+            }
+            
+            // Sort edges by weight (Manhattan distance)
+            Collections.sort(allEdges);
+            
+            // Initialize Union-Find data structure
+            for (Point3D point : grid) {
+                unionFind.makeSet(point);
+            }
+            
+            // Iterate through sorted edges and add to minimum spanning tree
+            for (Edge edge : allEdges) {
+                Point3D start = edge.start;
+                Point3D end = edge.end;
+                
+                if (unionFind.find(start) != unionFind.find(end)) {
+                    minimumSpanningTree.add(start);
+                    minimumSpanningTree.add(end);
+                    unionFind.union(start, end);
+                }
+                
+                // Check if all points of interest are connected
+                if (pointsOfInterestConnected(minimumSpanningTree, pointsOfInterest)) {
+                    break;
+                }
+            }
+            
+            return minimumSpanningTree;
+        }
+        
+        // Check if all points of interest are connected to the minimum spanning tree
+        private static boolean pointsOfInterestConnected(List<Point3D> minimumSpanningTree, List<Point3D> pointsOfInterest) {
+            Set<Point3D> set = new HashSet<>(minimumSpanningTree);
+            for (Point3D point : pointsOfInterest) {
+                if (!set.contains(point)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        
+        // Helper class for representing an edge
+        static class Edge implements Comparable<Edge> {
+            Point3D start;
+            Point3D end;
+            double weight;
+            
+            public Edge(Point3D start, Point3D end) {
+                this.start = start;
+                this.end = end;
+                this.weight = hexDistance(start, end);
+            }
+            
+            @Override
+            public int compareTo(Edge other) {
+                return Double.compare(weight, other.weight);
+            }
+            
+            private double hexDistance(Point3D start, Point3D end) {
+                return (Math.abs(start.getX() - end.getX()) + Math.abs(start.getY() - end.getY()) + Math.abs(start.getZ() - end.getZ())) / 2.0;
+            }
+        }
+        
+        // Helper class for Union-Find data structure
+        static class UnionFind<T> {
+            private Map<T, T> parent;
+            private Map<T, Integer> rank;
+            
+            public UnionFind() {
+                parent = new HashMap<>();
+                rank = new HashMap<>();
+            }
+            
+            public void makeSet(T x) {
+                parent.put(x, x);
+                rank.put(x, 0);
+            }
+            
+            public T find(T x) {
+                if (parent.get(x) != x) {
+                    parent.put(x, find(parent.get(x)));
+                }
+                return parent.get(x);
+            }
+            
+            public void union(T x, T y) {
+                T rootX = find(x);
+                T rootY = find(y);
+                
+                if (rootX != rootY) {
+                    if (rank.get(rootX) < rank.get(rootY)) {
+                        parent.put(rootX, rootY);
+                    } else if (rank.get(rootX) > rank.get(rootY)) {
+                        parent.put(rootY, rootX);
+                    } else {
+                        parent.put(rootY, rootX);
+                        rank.put(rootX, rank.get(rootX) + 1);
+                    }
+                }
+            }
         }
     }
 }
