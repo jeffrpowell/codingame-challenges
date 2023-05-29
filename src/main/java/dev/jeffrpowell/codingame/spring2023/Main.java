@@ -472,19 +472,20 @@ public class Main {
          * Find minimum spanning tree using Kruskal's Algorithm for Hexagonal Grids
          * 
          * TODO: Need to change this generated code
-         * 1 - Instantiate a forest of size=1 trees of all points of interest (typically my base, eggs, and crystals)
-         * 2 - Union all trees together that are distance=1 from each other (need to while-loop successive waves on this one)
+         * 1 - Instantiate a forest of size=1-trees of all points of interest
+         * 2 - Union all trees together that are distance=1 from each other (likely need to while-loop successive waves on this one)
          * 3 - Instantiate searchDistance = 2
-         * 4 - Search for all trees that are searchDistance away from the tree containing my base
-         * 5 - Calculate which hexes are in the intersecting region (regions is searchDistance large) between the home tree and all found trees + all prior-loop holdouts (#5a)
-         * 5a - If a frontier tree has intersecting hexes that are not connected; store them away for a future loop
-         * 6 - Establish a waypoint region (http://theory.stanford.edu/~amitp/GameProgramming/MapRepresentations.html#waypoints) for the points that are in the most intersecting regions
-         * 6a - Ensure that you track which frontier trees are associated with each waypoint region
-         * 6b - If a frontier tree hasn't been accounted for yet, go to the set of points in the next most amount of intersecting regions, etc., until all frontier trees are accounted for
+         * 4 - (While-loop start) Search for all trees that are searchDistance away from the tree containing my base
+         * 5 - Calculate which hexes are in the intersecting region between the home-base tree and all found trees + all prior-loop holdouts (see #5a) that are within searchDistance of each other
+         * 5a - If a frontier tree has intersecting hexes that are not connected to each other, store the tree away for a future loop
+         * 6 - Establish a "waypoint" tree (http://theory.stanford.edu/~amitp/GameProgramming/MapRepresentations.html#waypoints) comprising the points in the intersecting region neighboring the most trees that are searchDistance away from each other
+         * 6a - Ensure that you track which frontier trees are associated with each waypoint tree
+         * 6b - After establishing the waypoint trees, if a frontier tree hasn't been accounted for yet, go to the set of points in the next most amount of intersecting regions, etc., until all frontier trees are accounted for
          * 6c - http://theory.stanford.edu/~amitp/GameProgramming/Heuristics.html#multiple-goals and http://theory.stanford.edu/~amitp/GameProgramming/Heuristics.html#precomputed-exact-heuristic
-         * 7 - Starting from the home tree, A* with a heuristic that hits the waypoint first, then goes to the target tree
+         * 7 - Starting from the home tree, A* with a heuristic that hits the waypoint first, then goes to each target tree associated with the waypoint tree
+         * 7a - You'll need to use a composite heuristic that returns the min traditional heuristic to each point in the waypoint tree 
          * 8 - Store the path to each frontier tree in the min span tree structure; connect all the trees identified in #4
-         * 9 - While-loop 4-8; if no trees are found <= searchDistance, then increase searchDistance, until there is only one tree; 
+         * 9 - While-loop 4-8; if no trees are found <= searchDistance, then increase searchDistance, until there is only one tree--namely the min span tree; 
          * 9a - If the only non-unioned trees are tiebreaker holdouts, time to choose an arbitrary path to the home tree; prefer shortest route to my base
          * 10 - shuttle all identified hexes to beacon-creation
          * 
